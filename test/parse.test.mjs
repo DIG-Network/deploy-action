@@ -51,6 +51,27 @@ const SKIPPED_STDOUT = JSON.stringify(
   2,
 );
 
+// `--preview` (#18): a FREE preview capsule — no chain, no spend. Single object
+// taken verbatim from digstore commands/deploy.rs `preview()` JSON emit. NOTE the
+// store_id is the EPHEMERAL preview store (content-derived), not the production
+// store, and `content_address` is the root-pinned dig:// URL of the preview.
+const PREVIEW_STDOUT = JSON.stringify(
+  {
+    preview: true,
+    spent: false,
+    mocked: false,
+    root: ROOT,
+    store_id: STORE,
+    capsule: `${STORE}:${ROOT}`,
+    content_address: `dig://${STORE}:${ROOT}/`,
+    artifact: "/tmp/x/.dig-preview/bbb.dig",
+    artifact_size: 4096,
+    resources: 7,
+  },
+  null,
+  2,
+);
+
 // `--dry-run` preview: single object with the cost fields, nothing spent.
 const DRY_RUN_STDOUT = JSON.stringify(
   {
@@ -107,6 +128,31 @@ test("parses a --dry-run preview with cost fields", () => {
   assert.equal(r.costDig, 100);
   assert.equal(r.costDigDisplay, "100 DIG");
   assert.equal(r.feeXchDisplay, "0.000000001 XCH");
+});
+
+test("parses a --preview free build (no chain, no spend)", () => {
+  const r = parseDeployJson(PREVIEW_STDOUT);
+  assert.equal(r.preview, true);
+  assert.equal(r.spent, false, "a preview never spends");
+  assert.equal(r.skipped, false);
+  assert.equal(r.dryRun, false);
+  assert.equal(r.capsule, `${STORE}:${ROOT}`);
+  assert.equal(r.root, ROOT);
+  assert.equal(r.storeId, STORE);
+  // The preview's shareable address (root-pinned dig:// URL from the CLI).
+  assert.equal(r.contentAddress, `dig://${STORE}:${ROOT}/`);
+  assert.equal(r.artifact, "/tmp/x/.dig-preview/bbb.dig");
+  // A preview is a success, never a failure (it pushed nothing on-chain).
+  assert.equal(r.pushed, false);
+  assert.equal(r.pushError, undefined);
+});
+
+test("toOutputs surfaces preview + content-address outputs", () => {
+  const r = parseDeployJson(PREVIEW_STDOUT);
+  const out = toOutputs(r);
+  assert.equal(out.preview, "true");
+  assert.equal(out.spent, "false");
+  assert.equal(out["content-address"], `dig://${STORE}:${ROOT}/`);
 });
 
 test("tolerates leading human noise lines before the JSON blocks", () => {

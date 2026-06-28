@@ -13,6 +13,10 @@
 //   - a --dry-run preview: a single { dry_run, root, capsule, store_id,
 //       cost_dig, cost_dig_display, fee_xch_mojos, fee_xch_display, spent,
 //       hub_url? } block.
+//   - a --preview free build (#18): a single { preview, spent:false, mocked,
+//       root, store_id, capsule, content_address, artifact, artifact_size,
+//       resources } block — an EPHEMERAL preview store (content-derived id, NOT
+//       the production store), no chain, no spend.
 // We extract every top-level JSON object from the stream, merge them (last value
 // wins), and normalize to camelCase. We also DERIVE the dig:// URL and the
 // root-pinned URN, which the CLI does not emit, from store id + root (the URN
@@ -86,6 +90,7 @@ function storeIdFromCapsule(capsule) {
  *   hubUrl?: string, digUrl?: string, urn?: string,
  *   pushed: boolean, pushError?: string, spent: boolean,
  *   skipped: boolean, reason?: string, dryRun: boolean,
+ *   preview: boolean, contentAddress?: string, artifact?: string,
  *   costDig?: number, costDigDisplay?: string,
  *   feeXchMojos?: number, feeXchDisplay?: string,
  *   anchorStatus?: string, mocked?: boolean,
@@ -106,15 +111,17 @@ export function parseDeployJson(stdout) {
   const storeId = merged.store_id ?? storeIdFromCapsule(capsule);
   const skipped = merged.skipped === true;
   const dryRun = merged.dry_run === true;
+  const preview = merged.preview === true;
 
   // `spent` semantics: the CLI emits an explicit `spent: false` on skipped /
-  // dry-run blocks; a real publish block omits it but DID spend (it anchored an
-  // on-chain root). So: explicit value wins, else infer from "did it publish".
+  // dry-run / preview blocks; a real publish block omits it but DID spend (it
+  // anchored an on-chain root). So: explicit value wins, else infer from "did it
+  // publish" (a preview/dry-run/skip never publishes).
   let spent;
   if (typeof merged.spent === "boolean") {
     spent = merged.spent;
   } else {
-    spent = !skipped && !dryRun;
+    spent = !skipped && !dryRun && !preview;
   }
 
   // Derive the addresses the CLI doesn't emit.
@@ -139,6 +146,11 @@ export function parseDeployJson(stdout) {
     skipped,
     reason: merged.reason,
     dryRun,
+    preview,
+    // Preview-only: the shareable root-pinned dig:// address + the local artifact
+    // (the compiled `.dig` module) the action serves to preview hosting.
+    contentAddress: merged.content_address,
+    artifact: merged.artifact,
     costDig: merged.cost_dig,
     costDigDisplay: merged.cost_dig_display,
     feeXchMojos: merged.fee_xch_mojos,
@@ -170,8 +182,12 @@ export function toOutputs(r) {
     urn: str(r.urn),
     "hub-url": str(r.hubUrl),
     "coin-id": str(r.coinId),
+    // `content-address` is the shareable preview address (a --preview build);
+    // empty on a real deploy (use `dig-url`/`urn`/`hub-url` there).
+    "content-address": str(r.contentAddress),
     skipped: str(r.skipped),
     spent: str(r.spent),
     pushed: str(r.pushed),
+    preview: str(r.preview),
   };
 }
