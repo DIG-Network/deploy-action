@@ -1,0 +1,206 @@
+name: "Deploy to DIG Network"
+description: "Publish your build to the DIG Network on Chia — git-push-to-deploy. Installs the digstore CLI, runs `digstore deploy`, and reports the capsule + URLs + cost back on the PR."
+author: "DIG Network"
+branding:
+  icon: "upload-cloud"
+  color: "green"
+
+inputs:
+  directory:
+    description: "The built-output directory to publish (your dist/ or build/)."
+    required: false
+    default: "dist"
+  store-id:
+    description: "The 64-hex store id to advance. Optional — defaults to `store-id` in your dig.toml."
+    required: false
+    default: ""
+  if-changed:
+    description: "Skip the deploy (and the 100 DIG + XCH spend) when the build is byte-identical to the live version. The no-op guard that lets you run this on every push."
+    required: false
+    default: "true"
+  preview:
+    description: >-
+      PR preview deploy. Wave-2 (#18) free, no-spend per-PR previews are NOT YET available — until
+      the preview infrastructure ships, `preview: true` publishes a REAL capsule on Chia (100 DIG)
+      labelled as a preview. Leave false for production deploys.
+    required: false
+    default: "false"
+  digstore-version:
+    description: "The digstore CLI version to install (a release tag, e.g. v0.5.29, or `latest`). PIN this for reproducible CI."
+    required: false
+    default: "latest"
+  passphrase:
+    description: >-
+      SECURITY: the deploy wallet's DIGSTORE_PASSPHRASE for v1. This unlocks the seed that
+      signs the on-chain spend, so it can spend ALL of that wallet's DIG and XCH in CI. Use a
+      DEDICATED deploy wallet funded with only what your deploys need — never your main wallet.
+      Scoped, spend-capped, revocable deploy tokens (no seed in CI, roadmap #17) are the planned
+      safe replacement; cut over to those as soon as they ship. Pass this from a repo SECRET only.
+    required: false
+    default: ""
+  deploy-token:
+    description: >-
+      RESERVED for the future safe credential (roadmap #17): a scoped, spend-capped, revocable
+      deploy token that advances ONE store without the master seed. Not yet implemented — using it
+      today is an error. Provided so workflows can be written forward-compatibly.
+    required: false
+    default: ""
+  deploy-key:
+    description: "The store's publisher deploy key (64-hex, from `digstore deploy-key export`). Authorizes publishing the capsule to DIGHub; has NO spend authority. Pass from a repo secret."
+    required: false
+    default: ""
+  mnemonic:
+    description: "The deploy wallet's BIP-39 mnemonic, imported under the passphrase before deploy. Pass from a repo secret. Has full spend authority — use a dedicated deploy wallet (see `passphrase`)."
+    required: false
+    default: ""
+  salt:
+    description: "Secret salt (64-hex) for a PRIVATE store. Omit for public stores. Pass from a repo secret."
+    required: false
+    default: ""
+  remote:
+    description: "The remote to publish to (e.g. `dig://<store-id>` or a self-hosted node URL). Defaults to the public DIGHub."
+    required: false
+    default: ""
+  message:
+    description: "Commit message for the new capsule. Defaults to the commit being deployed."
+    required: false
+    default: ""
+  build-command:
+    description: "Optional shell command to build before deploying (e.g. `npm ci && npm run build`). Usually you build in a prior step instead."
+    required: false
+    default: ""
+  wait-timeout:
+    description: "Seconds to wait for on-chain confirmation (0 = submit and don't block)."
+    required: false
+    default: "600"
+  comment-on-pr:
+    description: "On a pull request, upsert a comment with the capsule, URLs and cost, and set a GitHub deployment + commit status."
+    required: false
+    default: "true"
+  github-token:
+    description: "Token used to comment on the PR and create the deployment/commit status. Defaults to the workflow's GITHUB_TOKEN."
+    required: false
+    default: "${{ github.token }}"
+  working-directory:
+    description: "Directory to run digstore from (where dig.toml lives). Defaults to the repo root."
+    required: false
+    default: "."
+
+outputs:
+  capsule:
+    description: "The published capsule: `storeId:rootHash`."
+    value: ${{ steps.report.outputs.capsule }}
+  root:
+    description: "The new on-chain root hash."
+    value: ${{ steps.report.outputs.root }}
+  store-id:
+    description: "The store id that was advanced."
+    value: ${{ steps.report.outputs.store-id }}
+  dig-url:
+    description: "The dig:// URL of the deployment (rootless = latest tip)."
+    value: ${{ steps.report.outputs.dig-url }}
+  urn:
+    description: "The root-pinned URN permalink (urn:dig:chia:<store>:<root>)."
+    value: ${{ steps.report.outputs.urn }}
+  hub-url:
+    description: "The DIGHub URL for the store (https://hub.dig.net/stores/<id>)."
+    value: ${{ steps.report.outputs.hub-url }}
+  coin-id:
+    description: "The on-chain coin id of the anchored root."
+    value: ${{ steps.report.outputs.coin-id }}
+  skipped:
+    description: "`true` when --if-changed skipped a no-op deploy."
+    value: ${{ steps.report.outputs.skipped }}
+  spent:
+    description: "`true` when the deploy spent DIG (a real publish)."
+    value: ${{ steps.report.outputs.spent }}
+  pushed:
+    description: "`true` when the capsule was published to the hub."
+    value: ${{ steps.report.outputs.pushed }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Guard: deploy-token is not yet supported"
+      if: inputs['deploy-token'] != ''
+      shell: bash
+      run: |
+        echo "::error::deploy-token is reserved for scoped deploy tokens (roadmap #17) and is not yet implemented. Use passphrase (+ mnemonic / deploy-key) for v1."
+        exit 1
+
+    - name: "Guard: a credential is required"
+      if: inputs.passphrase == '' && inputs['deploy-token'] == ''
+      shell: bash
+      run: |
+        echo "::error::no deploy credential: set 'passphrase' (the dedicated deploy wallet's DIGSTORE_PASSPHRASE) as a repo secret."
+        exit 1
+
+    - name: Install digstore CLI (pinned)
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        IN_DIGSTORE_VERSION: ${{ inputs.digstore-version }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        bash "$ACTION_PATH/scripts/install-digstore.sh" "$IN_DIGSTORE_VERSION"
+
+    - name: Import deploy wallet (if a mnemonic is provided)
+      if: inputs.mnemonic != ''
+      shell: bash
+      env:
+        DIGSTORE_PASSPHRASE: ${{ inputs.passphrase }}
+        DIG_MNEMONIC: ${{ inputs.mnemonic }}
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        # Restore the wallet seed from the secret mnemonic, unlocked by the
+        # passphrase. `--mnemonic` is the non-interactive form (no TTY prompt).
+        digstore seed import --mnemonic "$DIG_MNEMONIC"
+
+    - name: Deploy to DIG
+      id: deploy
+      shell: bash
+      # All inputs are passed through `env:` and read as $VARS in the script
+      # (never interpolated as `${{ }}` into the run body), so an input value can
+      # never inject shell — the script-injection-safe pattern.
+      env:
+        DIGSTORE_PASSPHRASE: ${{ inputs.passphrase }}
+        DIGSTORE_DEPLOY_KEY: ${{ inputs.deploy-key }}
+        DIGSTORE_STORE_SALT: ${{ inputs.salt }}
+        IN_DIRECTORY: ${{ inputs.directory }}
+        IN_IF_CHANGED: ${{ inputs.if-changed }}
+        IN_STORE_ID: ${{ inputs.store-id }}
+        IN_REMOTE: ${{ inputs.remote }}
+        IN_MESSAGE: ${{ inputs.message }}
+        IN_BUILD_COMMAND: ${{ inputs.build-command }}
+        IN_WAIT_TIMEOUT: ${{ inputs.wait-timeout }}
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -o pipefail
+        args=( deploy --output-dir "$IN_DIRECTORY" --json )
+        [ "$IN_IF_CHANGED" = "true" ] && args+=( --if-changed )
+        [ -n "$IN_STORE_ID" ]      && args+=( --store-id "$IN_STORE_ID" )
+        [ -n "$IN_REMOTE" ]        && args+=( --remote "$IN_REMOTE" )
+        [ -n "$IN_MESSAGE" ]       && args+=( --message "$IN_MESSAGE" )
+        [ -n "$IN_BUILD_COMMAND" ] && args+=( --build-command "$IN_BUILD_COMMAND" )
+        [ -n "$IN_WAIT_TIMEOUT" ]  && args+=( --wait-timeout "$IN_WAIT_TIMEOUT" )
+        # `--non-interactive` + `--yes` are GLOBAL digstore flags; deploy is
+        # already non-interactive in --json mode, but pass them so any nested
+        # confirmation auto-approves on a runner with no TTY.
+        out_file="${RUNNER_TEMP:-/tmp}/dig-deploy.json"
+        echo "Running: digstore --non-interactive --yes ${args[*]}"
+        digstore --non-interactive --yes "${args[@]}" | tee "$out_file"
+        echo "json-file=$out_file" >> "$GITHUB_OUTPUT"
+
+    - name: Report (outputs + PR comment + deployment status)
+      id: report
+      if: always() && steps.deploy.outputs['json-file'] != ''
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        DIG_COMMENT_ON_PR: ${{ inputs.comment-on-pr }}
+        DIG_PREVIEW: ${{ inputs.preview }}
+        DIG_DEPLOY_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        ACTION_PATH: ${{ github.action_path }}
+        DEPLOY_JSON_FILE: ${{ steps.deploy.outputs.json-file }}
+      run: |
+        node "$ACTION_PATH/src/report.mjs" "$DEPLOY_JSON_FILE"

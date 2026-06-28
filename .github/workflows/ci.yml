@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit tests (node --test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run tests
+        run: node --test
+      - name: action.yml / outputs contract check
+        run: node .github/scripts/check-action.mjs
+
+  lint:
+    name: Lint (actionlint + shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck the install script
+        run: shellcheck scripts/install-digstore.sh
+
+      - name: actionlint
+        # actionlint is preinstalled on GitHub-hosted ubuntu runners; install it
+        # if it ever isn't, then lint the workflows + this action.
+        run: |
+          if ! command -v actionlint >/dev/null 2>&1; then
+            bash <(curl -sSf https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+            export PATH="$PWD:$PATH"
+          fi
+          actionlint -color
