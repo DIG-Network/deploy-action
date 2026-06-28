@@ -26,27 +26,48 @@ inputs:
     required: false
     default: "false"
   digstore-version:
-    description: "The digstore CLI version to install (a release tag, e.g. v0.5.29, or `latest`). PIN this for reproducible CI."
-    required: false
-    default: "latest"
-  passphrase:
     description: >-
-      SECURITY: the deploy wallet's DIGSTORE_PASSPHRASE for v1. This unlocks the seed that
-      signs the on-chain spend, so it can spend ALL of that wallet's DIG and XCH in CI. Use a
-      DEDICATED deploy wallet funded with only what your deploys need — never your main wallet.
-      Scoped, spend-capped, revocable deploy tokens (no seed in CI, roadmap #17) are the planned
-      safe replacement; cut over to those as soon as they ship. Pass this from a repo SECRET only.
+      The digstore CLI version to install. A release tag (e.g. `v0.5.29`), a git ref/branch, or
+      `latest`. PIN this for reproducible CI. The keyless writer deploy-key (`--writer-key`) and the
+      free `deploy --preview` path require digstore at/after main commit `a33ea1f` (#17/#18); pin to
+      the first release tag that includes them once it is cut.
+    required: false
+    default: "main"
+  keyless:
+    description: >-
+      KEYLESS CI auth (#23): obtain a GitHub OIDC token (audience=dighub) and exchange it with the
+      hub for a short-lived, store-scoped session — NO long-lived dighub secret in the repo. Requires
+      `permissions: id-token: write`. The repo+ref must be bound to your store on hub.dig.net. On by
+      default; set `false` only for the legacy secret-based path.
+    required: false
+    default: "true"
+  api-base:
+    description: "The dighub control-plane API base for the OIDC exchange. Defaults to the public hub."
+    required: false
+    default: "https://hub.dig.net/v1"
+  writer-key:
+    description: >-
+      The on-chain WRITER DELEGATE key (64-hex seed) that advances the store's root WITHOUT the owner
+      master seed (#17). The owner pre-authorizes this writer (hub Teams "Deployer"); it can change
+      ONLY the metadata root — never the owner, never melt. Pass from a repo secret. Maps to
+      `digstore deploy --writer-key` / `DIGSTORE_WRITER_KEY`.
     required: false
     default: ""
-  deploy-token:
+  passphrase:
     description: >-
-      RESERVED for the future safe credential (roadmap #17): a scoped, spend-capped, revocable
-      deploy token that advances ONE store without the master seed. Not yet implemented — using it
-      today is an error. Provided so workflows can be written forward-compatibly.
+      The deploy wallet's DIGSTORE_PASSPHRASE — unlocks the seed that PAYS the on-chain fee (100 DIG
+      + XCH) for a real deploy to the default branch. NOT needed for PR previews (free, no chain). In
+      keyless mode the writer-key advances the root and the OIDC session authorizes the push; this
+      seed only funds the spend. Use a DEDICATED deploy wallet funded with only what your deploys
+      need — never your main wallet. Pass from a repo SECRET only.
     required: false
     default: ""
   deploy-key:
-    description: "The store's publisher deploy key (64-hex, from `digstore deploy-key export`). Authorizes publishing the capsule to DIGHub; has NO spend authority. Pass from a repo secret."
+    description: >-
+      The store's §21 PUBLISHER deploy key (64-hex, from `digstore deploy-key export`). Authorizes
+      publishing the capsule head to DIGHub; has NO on-chain spend authority. Distinct from
+      `writer-key` (the on-chain root-advance authority). Pass from a repo secret. Maps to
+      `digstore deploy --deploy-key` / `DIGSTORE_DEPLOY_KEY`.
     required: false
     default: ""
   mnemonic:
@@ -108,6 +129,12 @@ outputs:
   coin-id:
     description: "The on-chain coin id of the anchored root."
     value: ${{ steps.report.outputs.coin-id }}
+  content-address:
+    description: "On a `--preview` build: the shareable root-pinned dig:// address of the preview capsule. Empty on a real deploy."
+    value: ${{ steps.report.outputs.content-address }}
+  preview:
+    description: "`true` when this run produced a free preview build (PR), not a real on-chain deploy."
+    value: ${{ steps.report.outputs.preview }}
   skipped:
     description: "`true` when --if-changed skipped a no-op deploy."
     value: ${{ steps.report.outputs.skipped }}
@@ -121,18 +148,28 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: "Guard: deploy-token is not yet supported"
-      if: inputs['deploy-token'] != ''
+    # Decide PR-preview vs push-deploy from the triggering event (pure JS, tested).
+    # On pull_request → a free preview; on push/dispatch to the default branch → a
+    # real deploy; anything else → preview (never a surprise spend off a branch).
+    - name: Decide deploy mode (preview vs deploy)
+      id: mode
       shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        GITHUB_EVENT_NAME: ${{ github.event_name }}
+        GITHUB_REF: ${{ github.ref }}
+        DIG_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        DIG_FORCE_PREVIEW: ${{ inputs.preview }}
       run: |
-        echo "::error::deploy-token is reserved for scoped deploy tokens (roadmap #17) and is not yet implemented. Use passphrase (+ mnemonic / deploy-key) for v1."
-        exit 1
+        node "$ACTION_PATH/src/mode.mjs"
 
-    - name: "Guard: a credential is required"
-      if: inputs.passphrase == '' && inputs['deploy-token'] == ''
+    # A real (non-preview) deploy needs a wallet seed to PAY the on-chain fee. A
+    # preview is free, so it needs no credential — only previews may run without one.
+    - name: "Guard: a real deploy needs a funding credential"
+      if: steps.mode.outputs.preview != 'true' && inputs.passphrase == ''
       shell: bash
       run: |
-        echo "::error::no deploy credential: set 'passphrase' (the dedicated deploy wallet's DIGSTORE_PASSPHRASE) as a repo secret."
+        echo "::error::no funding credential for a real deploy: set 'passphrase' (the deploy wallet's DIGSTORE_PASSPHRASE) as a repo secret. PR previews are free and need none."
         exit 1
 
     - name: Install digstore CLI (pinned)
@@ -144,8 +181,26 @@ runs:
       run: |
         bash "$ACTION_PATH/scripts/install-digstore.sh" "$IN_DIGSTORE_VERSION"
 
+    # KEYLESS auth (#23): exchange the job's GitHub OIDC token (audience=dighub) for
+    # a short-lived store-scoped dighub session, written to DIG_IDENTITY_DIR so the
+    # §21 head push is authorized WITHOUT a static secret. Skipped for a preview
+    # (free, no hub push) and when keyless is disabled. NEVER prints any token.
+    - name: Keyless dighub auth (GitHub OIDC exchange)
+      id: keyless
+      if: inputs.keyless == 'true' && steps.mode.outputs.preview != 'true'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        DIG_API_BASE: ${{ inputs.api-base }}
+        DIG_IDENTITY_DIR: ${{ runner.temp }}/dig-identity
+      # The runner injects ACTIONS_ID_TOKEN_REQUEST_URL / _TOKEN into the step env
+      # automatically when the job has `permissions: id-token: write`; auth.mjs reads
+      # them directly (no need to re-map them here).
+      run: |
+        node "$ACTION_PATH/src/auth.mjs"
+
     - name: Import deploy wallet (if a mnemonic is provided)
-      if: inputs.mnemonic != ''
+      if: inputs.mnemonic != '' && steps.mode.outputs.preview != 'true'
       shell: bash
       env:
         DIGSTORE_PASSPHRASE: ${{ inputs.passphrase }}
@@ -163,12 +218,18 @@ runs:
       # (never interpolated as `${{ }}` into the run body), so an input value can
       # never inject shell — the script-injection-safe pattern.
       env:
+        # The keyless session (and the dighub API base) digstore reads for the push.
+        DIG_IDENTITY_DIR: ${{ runner.temp }}/dig-identity
+        DIG_API_BASE: ${{ inputs.api-base }}
         DIGSTORE_PASSPHRASE: ${{ inputs.passphrase }}
         DIGSTORE_DEPLOY_KEY: ${{ inputs.deploy-key }}
+        DIGSTORE_WRITER_KEY: ${{ inputs.writer-key }}
         DIGSTORE_STORE_SALT: ${{ inputs.salt }}
+        IN_PREVIEW: ${{ steps.mode.outputs.preview }}
         IN_DIRECTORY: ${{ inputs.directory }}
         IN_IF_CHANGED: ${{ inputs.if-changed }}
-        IN_STORE_ID: ${{ inputs.store-id }}
+        # Prefer the store the OIDC exchange bound; fall back to the input / dig.toml.
+        IN_STORE_ID: ${{ steps.keyless.outputs.store-id || inputs.store-id }}
         IN_REMOTE: ${{ inputs.remote }}
         IN_MESSAGE: ${{ inputs.message }}
         IN_BUILD_COMMAND: ${{ inputs.build-command }}
@@ -177,12 +238,21 @@ runs:
       run: |
         set -o pipefail
         args=( deploy --output-dir "$IN_DIRECTORY" --json )
-        [ "$IN_IF_CHANGED" = "true" ] && args+=( --if-changed )
-        [ -n "$IN_STORE_ID" ]      && args+=( --store-id "$IN_STORE_ID" )
-        [ -n "$IN_REMOTE" ]        && args+=( --remote "$IN_REMOTE" )
-        [ -n "$IN_MESSAGE" ]       && args+=( --message "$IN_MESSAGE" )
-        [ -n "$IN_BUILD_COMMAND" ] && args+=( --build-command "$IN_BUILD_COMMAND" )
-        [ -n "$IN_WAIT_TIMEOUT" ]  && args+=( --wait-timeout "$IN_WAIT_TIMEOUT" )
+        if [ "$IN_PREVIEW" = "true" ]; then
+          # PR PREVIEW: a free build via the real read path — no chain, no spend,
+          # no store id / key / wallet needed.
+          args+=( --preview )
+          [ -n "$IN_BUILD_COMMAND" ] && args+=( --build-command "$IN_BUILD_COMMAND" )
+        else
+          # REAL DEPLOY to the default branch: advance the on-chain root (writer-key
+          # via DIGSTORE_WRITER_KEY) + push to DIGHub (keyless session / deploy-key).
+          [ "$IN_IF_CHANGED" = "true" ] && args+=( --if-changed )
+          [ -n "$IN_STORE_ID" ]      && args+=( --store-id "$IN_STORE_ID" )
+          [ -n "$IN_REMOTE" ]        && args+=( --remote "$IN_REMOTE" )
+          [ -n "$IN_MESSAGE" ]       && args+=( --message "$IN_MESSAGE" )
+          [ -n "$IN_BUILD_COMMAND" ] && args+=( --build-command "$IN_BUILD_COMMAND" )
+          [ -n "$IN_WAIT_TIMEOUT" ]  && args+=( --wait-timeout "$IN_WAIT_TIMEOUT" )
+        fi
         # `--non-interactive` + `--yes` are GLOBAL digstore flags; deploy is
         # already non-interactive in --json mode, but pass them so any nested
         # confirmation auto-approves on a runner with no TTY.
@@ -198,7 +268,9 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         DIG_COMMENT_ON_PR: ${{ inputs.comment-on-pr }}
-        DIG_PREVIEW: ${{ inputs.preview }}
+        # The mode decision is authoritative (a PR auto-previews); the CLI's own
+        # `preview` flag in the JSON still wins inside report.mjs.
+        DIG_PREVIEW: ${{ steps.mode.outputs.preview }}
         DIG_DEPLOY_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         ACTION_PATH: ${{ github.action_path }}
         DEPLOY_JSON_FILE: ${{ steps.deploy.outputs.json-file }}

@@ -15,34 +15,52 @@ take down.
 
 ## What it does
 
+It does the right thing for the event automatically:
+
+- **On a pull request → a free preview.** Runs `digstore deploy --preview` — your build is compiled
+  and verified through the real `dig://` read path, producing a shareable, content-addressed preview.
+  **No chain, no wallet, no spend.** The preview address is commented on the PR.
+- **On a push to your default branch → a real deploy.** Runs `digstore deploy --if-changed` — it
+  advances the store's on-chain root and publishes the new capsule to DIGHub, then sets a GitHub
+  deployment status and comments the live URL.
+
+Under the hood, on a real deploy it:
+
 1. Installs the pinned `digstore` CLI on the runner.
-2. Restores your deploy credential from a repo secret.
-3. Runs `digstore deploy --output-dir <directory> --json` (with `--if-changed` by default).
-4. Parses the result and exposes the **capsule**, root, store id, `dig://` URL, URN, hub URL, and
-   on-chain coin id as step outputs.
-5. On a PR, upserts a comment with the capsule + URLs + cost (the flat 100 DIG), creates a GitHub
-   Deployment, and sets a commit status (a red X if the on-chain anchor or hub push failed/timed out
-   — so a broken deploy can block merge).
+2. **Authorizes the deploy keylessly** — exchanges the job's GitHub **OIDC** token (`audience=dighub`)
+   for a short-lived, store-scoped dighub session. **No long-lived dighub secret lives in the repo.**
+3. Advances the on-chain root with a **writer deploy-key** (a revocable, writer-delegated key that can
+   change only the metadata root — never the owner, never melt), and publishes the capsule to DIGHub
+   over the keyless session.
+4. Parses the result and exposes the **capsule**, root, store id, `dig://` URL, URN, hub URL, on-chain
+   coin id (and, for a preview, the **content address**) as step outputs.
+5. Upserts a PR comment with the capsule + URLs + cost, creates a GitHub Deployment, and sets a commit
+   status (a red X if the on-chain anchor or hub push failed/timed out — so a broken deploy can block
+   merge).
 
 You create the store once (`digstore init`, which mints it and spends 100 DIG). This action only
 **advances** an existing store — it never mints. Each real deploy is a new capsule costing **100 DIG
-+ a small XCH fee**, paid from your deploy wallet.
++ a small XCH fee**, paid from your deploy wallet. **PR previews are free.**
 
 ---
 
 ## Usage
 
-### Push-to-deploy (deploy on every push to `main`)
+One workflow handles both: a **free preview on every PR** and a **real deploy on push to your
+default branch**. The action picks the mode from the event — you don't configure it.
 
 ```yaml
 name: Deploy to DIG
 on:
   push:
-    branches: [main]
+    branches: [main]      # real deploy
+  pull_request:           # free preview
 
 permissions:
   contents: read
-  deployments: write   # for the GitHub Deployment + commit status
+  id-token: write         # KEYLESS auth — exchange the OIDC token (no dighub secret)
+  pull-requests: write    # comment the preview / live URL on the PR
+  deployments: write      # the GitHub Deployment + commit status
 
 jobs:
   deploy:
@@ -51,83 +69,72 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: "20" }
-      - run: npm ci && npm run build        # produces ./dist
+      - run: npm ci && npm run build         # produces ./dist
 
       - name: Deploy to DIG
         id: dig
         uses: DIG-Network/deploy-action@v1   # pin to @v1 once released (SHA until then)
         with:
           directory: dist
-          digstore-version: v0.5.29          # PIN for reproducible CI
-          passphrase: ${{ secrets.DIGSTORE_PASSPHRASE }}
+          digstore-version: main             # PIN once a release carries #17/#18 (see Versioning)
+          # KEYLESS: no dighub secret. The on-chain spend still needs a funding wallet:
+          writer-key: ${{ secrets.DIG_WRITER_KEY }}   # advances the root (revocable, root-only)
+          passphrase: ${{ secrets.DIGSTORE_PASSPHRASE }}  # funds the 100 DIG + XCH fee
           mnemonic:   ${{ secrets.DIG_MNEMONIC }}
-          deploy-key: ${{ secrets.DIG_DEPLOY_KEY }}
-          # store-id is read from dig.toml; pass store-id: here to override.
+          # store-id comes from the OIDC binding (or dig.toml). Pass store-id: to override.
 
-      - run: echo "Published ${{ steps.dig.outputs.capsule }} -> ${{ steps.dig.outputs.hub-url }}"
+      - run: echo "Deployed ${{ steps.dig.outputs.capsule }} -> ${{ steps.dig.outputs.hub-url }}"
 ```
 
-With `if-changed` (the default `true`), a push whose build is byte-identical to the live version is
-a **no-op** — no spend, nothing published — so it is safe to run on every push.
+- **PRs** run `digstore deploy --preview`: a **free**, content-addressed build verified through the
+  real `dig://` read path. No `id-token`/wallet is needed for a preview, but keeping the keyless
+  permissions on the one job lets the same workflow also deploy on push. The preview address is
+  output as `content-address` and commented on the PR.
+- **Pushes to the default branch** run `digstore deploy --if-changed`: a push whose build is
+  byte-identical to the live version is a **no-op** (no spend, nothing published), so it is safe to
+  run on every push.
+- A push to a **non-default** branch previews (never a surprise spend). Set `preview: true` to force
+  preview on any event.
 
-### Preview per pull request
+### Keyless auth — one-time binding
 
-```yaml
-name: DIG Preview
-on:
-  pull_request:
+Keyless auth removes the long-lived dighub secret from your repo. CI presents the workflow's
+short-lived GitHub **OIDC** token; the hub verifies it (fail-closed against GitHub's JWKS) and, if
+your repo + ref is **bound to your store**, mints a short-lived store-scoped session for the push.
 
-permissions:
-  contents: read
-  pull-requests: write   # to comment the preview URL on the PR
-  deployments: write
+Register the binding once (owner-only), then no dighub secret is ever stored in the repo:
 
-jobs:
-  preview:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: "20" }
-      - run: npm ci && npm run build
+- In the hub: **Project → Settings → CI deploy → add a repo binding** for `owner/repo` + the git ref
+  (defaults to `refs/heads/main`).
 
-      - name: Preview on DIG
-        uses: DIG-Network/deploy-action@v1
-        with:
-          directory: dist
-          preview: true                      # see the preview note below
-          digstore-version: v0.5.29
-          passphrase: ${{ secrets.DIGSTORE_PASSPHRASE }}
-          mnemonic:   ${{ secrets.DIG_MNEMONIC }}
-          deploy-key: ${{ secrets.DIG_DEPLOY_KEY }}
-```
-
-> [!IMPORTANT]
-> **Preview infrastructure is not live yet (Wave-2, roadmap #18).** Free, no-spend, expiring per-PR
-> preview capsules (`{hash}.preview.dig.net`) are planned. **Until they ship, `preview: true`
-> publishes a *real* capsule on Chia (100 DIG)** — it is labelled as a preview in the PR comment and
-> the deployment is marked transient, but it does spend. The `preview` flag is scaffolded now so
-> your workflows are forward-compatible; treat it as a real deploy for the moment.
+If the repo isn't bound, the action fails with a clear `403` pointing you here.
 
 ---
 
-## Security — read this before putting a wallet in CI
+## Security
+
+There are three distinct credentials. Two of them are **keyless / spend-limited**; only the funding
+wallet can spend, and that is needed solely on a real deploy (never for a preview):
+
+| Credential | What it can do | How it's provided |
+|---|---|---|
+| **Keyless OIDC session** | Authorize the DIGHub head push for the bound store | Minted per-run from the GitHub OIDC token — **no secret in the repo** |
+| **Writer deploy-key** (`writer-key`) | Advance the store's **on-chain root only** — never change owner, never melt; **revocable** | Repo secret |
+| **Funding wallet** (`passphrase` + `mnemonic`) | **Pay** the 100 DIG + XCH fee for a real deploy | Repo secret |
 
 > [!CAUTION]
-> **v1 puts your deploy wallet's seed in CI.** `passphrase` + `mnemonic` unlock a seed that **can
-> spend all of that wallet's DIG and XCH**. Protect yourself:
+> **The funding wallet's seed can spend all of that wallet's DIG and XCH.** It only signs the
+> *payment* for the on-chain root update (the writer-key authorizes the change itself), but protect
+> it anyway:
 >
 > - Use a **dedicated deploy wallet**, never your main wallet.
-> - Fund it with only **enough DIG for your expected deploys** (each = 100 DIG + a small fee).
-> - Store both as GitHub **encrypted secrets** — never in `dig.toml` or any committed file.
->
-> **The future safe path is scoped deploy tokens (roadmap #17):** a store-bound, spend-capped,
-> revocable credential that advances *one* store **without** the master seed. The `deploy-token`
-> input is reserved for it now (using it today is an error). Cut over to deploy tokens as soon as
-> they ship — they remove the funded-seed-in-CI risk entirely.
+> - Fund it with only **enough DIG for your expected deploys** (each real deploy = 100 DIG + a fee).
+> - Store it as GitHub **encrypted secrets** — never in `dig.toml` or any committed file.
+> - **PR previews are free and need none of these** — no OIDC, no writer-key, no wallet.
 
-The **deploy key** (`deploy-key`) is a separate credential: it authorizes publishing the capsule to
-DIGHub but has **no spend authority**. Still treat it like a secret.
+The **publisher deploy-key** (`deploy-key`) is the §21 head-push credential (no spend authority); in
+keyless mode the OIDC session covers the push, so you usually don't need it. It remains available for
+self-hosted remotes or when not using keyless auth.
 
 ### One-time setup
 
@@ -135,18 +142,24 @@ On the machine where you created the store:
 
 ```sh
 digstore log --json          # copy the "store_id" field (or set it in dig.toml)
-digstore deploy-key export   # copy the 64-hex publisher deploy key
 ```
 
-Then add three repository secrets (Settings -> Secrets and variables -> Actions):
+1. **Bind the repo to your store (keyless):** in the hub, **Project → Settings → CI deploy → add a
+   repo binding** for `owner/repo` + ref. No secret is generated — the binding is what authorizes the
+   OIDC exchange.
+2. **Authorize a writer deploy-key** for CI (hub Teams → add a "Deployer"), and store it as a secret.
+3. **Add the funding wallet** as secrets.
+
+Repository secrets (Settings → Secrets and variables → Actions):
 
 | Secret | Value |
 |---|---|
-| `DIGSTORE_PASSPHRASE` | The passphrase that unlocks the deploy wallet's seed in CI |
-| `DIG_MNEMONIC` | The dedicated deploy wallet's BIP-39 mnemonic |
-| `DIG_DEPLOY_KEY` | The 64-hex key from `digstore deploy-key export` |
+| `DIG_WRITER_KEY` | The 64-hex writer deploy-key that advances the store's root (revocable, root-only) |
+| `DIGSTORE_PASSPHRASE` | The passphrase that unlocks the funding wallet's seed in CI |
+| `DIG_MNEMONIC` | The dedicated funding wallet's BIP-39 mnemonic |
 
-And commit a `dig.toml` to your repo root (so `store-id` / `output-dir` don't have to be passed):
+And commit a `dig.toml` to your repo root (so `output-dir` etc. don't have to be passed; `store-id` is
+resolved from the OIDC binding but may also be pinned here):
 
 ```toml
 store-id   = "<your 64-hex store id>"
@@ -161,14 +174,16 @@ output-dir = "dist"
 | Input | Default | Description |
 |---|---|---|
 | `directory` | `dist` | The built-output directory to publish. |
-| `store-id` | from `dig.toml` | The 64-hex store id to advance. |
+| `store-id` | OIDC binding / `dig.toml` | The 64-hex store id to advance. Resolved from the keyless OIDC binding when available. |
 | `if-changed` | `true` | Skip the deploy (and the spend) when the build is byte-identical to the live version. |
-| `preview` | `false` | PR preview deploy. **Not yet free/no-spend** — see the preview note (#18). |
-| `digstore-version` | `latest` | The `digstore` CLI version (a release tag, e.g. `v0.5.29`). **Pin this.** |
-| `passphrase` | — | The deploy wallet's `DIGSTORE_PASSPHRASE` (v1 credential). **Use a dedicated wallet.** |
-| `deploy-token` | — | **Reserved** for scoped deploy tokens (#17). Not yet implemented — using it errors. |
-| `deploy-key` | — | The store's 64-hex publisher deploy key (no spend authority). |
-| `mnemonic` | — | The deploy wallet's BIP-39 mnemonic, imported under `passphrase`. |
+| `preview` | `false` | Force a **free preview** (`--preview`) even on a default-branch push. PRs preview automatically. |
+| `digstore-version` | `main` | The `digstore` CLI version: a release tag, git ref/branch, or `latest`. **Pin this.** Needs #17/#18 (main `a33ea1f`+). |
+| `keyless` | `true` | Keyless CI auth: exchange the GitHub OIDC token (`audience=dighub`) for a store-scoped session — no dighub secret. Needs `id-token: write`. |
+| `api-base` | `https://hub.dig.net/v1` | The dighub control-plane API base for the OIDC exchange. |
+| `writer-key` | — | The on-chain **writer** deploy-key (64-hex): advances the root only, revocable. `DIGSTORE_WRITER_KEY`. |
+| `passphrase` | — | The funding wallet's `DIGSTORE_PASSPHRASE` — pays the on-chain fee on a real deploy. **Use a dedicated wallet.** |
+| `deploy-key` | — | The store's 64-hex §21 publisher deploy key (no spend authority). Usually unneeded with keyless. |
+| `mnemonic` | — | The funding wallet's BIP-39 mnemonic, imported under `passphrase`. |
 | `salt` | — | Secret salt (64-hex) for a **private** store. Omit for public stores. |
 | `remote` | public DIGHub | The remote to publish to (e.g. `dig://<store-id>` or a node URL). |
 | `message` | the commit | Commit message for the new capsule. |
@@ -191,6 +206,8 @@ All credentials should be passed from **repo secrets**, never inline.
 | `urn` | The root-pinned URN permalink (`urn:dig:chia:<store>:<root>`). |
 | `hub-url` | The DIGHub URL for the store (`https://hub.dig.net/stores/<id>`). |
 | `coin-id` | The on-chain coin id of the anchored root. |
+| `content-address` | On a `--preview` build: the shareable root-pinned `dig://` address. Empty on a real deploy. |
+| `preview` | `true` when this run produced a free preview (a PR), not a real on-chain deploy. |
 | `skipped` | `true` when `--if-changed` skipped a no-op deploy. |
 | `spent` | `true` when the deploy spent DIG (a real publish). |
 | `pushed` | `true` when the capsule was published to the hub. |
@@ -205,16 +222,29 @@ All credentials should be passed from **repo secrets**, never inline.
 
 The action wraps `digstore deploy`, which is built for CI: on a fresh checkout it reconstructs the
 store locally from the deploy key + the current on-chain root, stages your output directory, advances
-the root, and pushes the new capsule — all non-interactively. You can run the same flow yourself:
+the root (signed by the **writer** deploy-key, `--writer-key`), and pushes the new capsule — all
+non-interactively. The composite steps, in order:
+
+1. **Decide mode** (`src/mode.mjs`) — PR → preview, default-branch push → deploy.
+2. **Keyless auth** (`src/auth.mjs` → `src/oidc.mjs`) on a real deploy — request the GitHub OIDC token
+   (`audience=dighub`), `POST /auth/ci/github-oidc`, and write the scoped session to a temp identity
+   dir digstore reads. No token is ever printed.
+3. **Run `digstore`** — `deploy --preview` (PR) or `deploy --if-changed --writer-key …` (push).
+4. **Report** (`src/report.mjs` → `parse.mjs`/`comment.mjs`/`github.mjs`) — outputs, PR comment, and
+   the GitHub deployment + commit status.
+
+You can run the deploy half yourself:
 
 ```sh
-digstore seed import --mnemonic "$DIG_MNEMONIC"            # DIGSTORE_PASSPHRASE set
-DIGSTORE_DEPLOY_KEY=<64-hex> digstore deploy --output-dir dist --json --if-changed
+digstore seed import --mnemonic "$DIG_MNEMONIC"            # DIGSTORE_PASSPHRASE set (funds the fee)
+DIGSTORE_WRITER_KEY=<64-hex> digstore deploy --output-dir dist --json --if-changed   # advance root + push
+digstore deploy --preview --output-dir dist --json         # a free preview — no chain, no spend
 ```
 
-The parsing, PR-comment, and deployment-reporting logic lives in `src/` (`parse.mjs`,
-`comment.mjs`, `github.mjs`, `report.mjs`) as plain Node ESM with **zero npm dependencies** (the
-GitHub REST calls use Node 20's global `fetch`), and is unit-tested with `node --test`.
+The logic in `src/` is plain Node ESM with **zero npm dependencies** (the GitHub REST and OIDC calls
+use Node 20's global `fetch`), unit-tested with `node --test`. The composite-YAML glue and the full
+keyless path (OIDC request → exchange → session write) are exercised by `.github/workflows/smoke.yml`
+against a local echo server (no real GitHub OIDC, no real hub, no secrets).
 
 ### digstore install
 
@@ -244,6 +274,12 @@ This action follows the standard GitHub Action major-tag convention:
 
 > The first `@v1` tag is **not** cut automatically — a human gates it. Until then, pin to a commit
 > SHA.
+
+> [!NOTE]
+> **digstore pin:** the keyless writer deploy-key (`--writer-key`) and the free `deploy --preview`
+> path landed on digstore `main` at commit `a33ea1f` (#17/#18) and are **not yet in a release tag**
+> (the latest, `v0.5.29`, predates them). So `digstore-version` defaults to `main`. Pin it to the
+> first digstore release tag that includes `a33ea1f` as soon as one is cut, for reproducible CI.
 
 ---
 
