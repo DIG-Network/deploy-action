@@ -76,7 +76,7 @@ jobs:
         uses: DIG-Network/deploy-action@v1   # pin to @v1 once released (SHA until then)
         with:
           directory: dist
-          digstore-version: main             # PIN once a release carries #17/#18 (see Versioning)
+          digstore-version: v0.6.0           # PIN for reproducible CI (carries #17/#18)
           # KEYLESS: no dighub secret. The on-chain spend still needs a funding wallet:
           writer-key: ${{ secrets.DIG_WRITER_KEY }}   # advances the root (revocable, root-only)
           passphrase: ${{ secrets.DIGSTORE_PASSPHRASE }}  # funds the 100 DIG + XCH fee
@@ -177,7 +177,7 @@ output-dir = "dist"
 | `store-id` | OIDC binding / `dig.toml` | The 64-hex store id to advance. Resolved from the keyless OIDC binding when available. |
 | `if-changed` | `true` | Skip the deploy (and the spend) when the build is byte-identical to the live version. |
 | `preview` | `false` | Force a **free preview** (`--preview`) even on a default-branch push. PRs preview automatically. |
-| `digstore-version` | `main` | The `digstore` CLI version: a release tag, git ref/branch, or `latest`. **Pin this.** Needs #17/#18 (main `a33ea1f`+). |
+| `digstore-version` | `v0.6.0` | The `digstore` CLI version: a release tag, git ref/branch, or `latest`. **Pin this.** Needs #17/#18 (>= `v0.6.0`). |
 | `keyless` | `true` | Keyless CI auth: exchange the GitHub OIDC token (`audience=dighub`) for a store-scoped session — no dighub secret. Needs `id-token: write`. |
 | `api-base` | `https://hub.dig.net/v1` | The dighub control-plane API base for the OIDC exchange. |
 | `writer-key` | — | The on-chain **writer** deploy-key (64-hex): advances the root only, revocable. `DIGSTORE_WRITER_KEY`. |
@@ -277,9 +277,8 @@ This action follows the standard GitHub Action major-tag convention:
 
 > [!NOTE]
 > **digstore pin:** the keyless writer deploy-key (`--writer-key`) and the free `deploy --preview`
-> path landed on digstore `main` at commit `a33ea1f` (#17/#18) and are **not yet in a release tag**
-> (the latest, `v0.5.29`, predates them). So `digstore-version` defaults to `main`. Pin it to the
-> first digstore release tag that includes `a33ea1f` as soon as one is cut, for reproducible CI.
+> path (#17/#18) require digstore **>= `v0.6.0`** — which is the `digstore-version` default. Keep it
+> pinned to an explicit tag for reproducible CI.
 
 ---
 

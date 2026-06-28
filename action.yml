@@ -27,12 +27,11 @@ inputs:
     default: "false"
   digstore-version:
     description: >-
-      The digstore CLI version to install. A release tag (e.g. `v0.5.29`), a git ref/branch, or
+      The digstore CLI version to install. A release tag (e.g. `v0.6.0`), a git ref/branch, or
       `latest`. PIN this for reproducible CI. The keyless writer deploy-key (`--writer-key`) and the
-      free `deploy --preview` path require digstore at/after main commit `a33ea1f` (#17/#18); pin to
-      the first release tag that includes them once it is cut.
+      free `deploy --preview` path (#17/#18) require digstore >= `v0.6.0`, which is the default.
     required: false
-    default: "main"
+    default: "v0.6.0"
   keyless:
     description: >-
       KEYLESS CI auth (#23): obtain a GitHub OIDC token (audience=dighub) and exchange it with the
