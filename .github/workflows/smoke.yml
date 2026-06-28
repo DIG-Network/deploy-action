@@ -1,0 +1,144 @@
+name: Smoke (composite glue + keyless wiring)
+
+# Exercises the parts of the action that unit tests can't reach directly: the
+# JS entrypoints the composite YAML shells into (mode decision, keyless auth, the
+# report writer) and that action.yml itself parses. The OIDC exchange is driven
+# against a LOCAL echo server (no real GitHub OIDC, no real hub, no secrets), so
+# the full keyless path — request token → exchange → write session.json → emit
+# store-id — is verified end to end.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke the keyless wiring
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: action.yml parses and declares the keyless inputs
+        run: |
+          node -e '
+            const fs = require("fs");
+            const s = fs.readFileSync("action.yml", "utf8");
+            for (const key of ["keyless", "api-base", "writer-key", "deploy-key"]) {
+              if (!new RegExp("\\n  " + key.replace("-", "\\-") + ":").test(s)) {
+                throw new Error("action.yml missing input: " + key);
+              }
+            }
+            for (const out of ["content-address", "preview"]) {
+              if (!s.includes(out + ":")) throw new Error("action.yml missing output: " + out);
+            }
+            console.log("action.yml inputs/outputs present");
+          '
+
+      - name: mode.mjs — pull_request decides preview
+        env:
+          GITHUB_EVENT_NAME: pull_request
+          GITHUB_REF: refs/heads/feature
+          DIG_DEFAULT_BRANCH: main
+          GITHUB_OUTPUT: ${{ runner.temp }}/mode-pr.out
+        run: |
+          node src/mode.mjs
+          grep -qx 'preview=true' "$GITHUB_OUTPUT"
+          grep -qx 'environment=preview' "$GITHUB_OUTPUT"
+
+      - name: mode.mjs — push to default branch decides production deploy
+        env:
+          GITHUB_EVENT_NAME: push
+          GITHUB_REF: refs/heads/main
+          DIG_DEFAULT_BRANCH: main
+          GITHUB_OUTPUT: ${{ runner.temp }}/mode-push.out
+        run: |
+          node src/mode.mjs
+          grep -qx 'preview=false' "$GITHUB_OUTPUT"
+          grep -qx 'environment=production' "$GITHUB_OUTPUT"
+
+      - name: auth.mjs — full keyless exchange against a local echo hub
+        env:
+          DIG_IDENTITY_DIR: ${{ runner.temp }}/dig-identity
+          GITHUB_OUTPUT: ${{ runner.temp }}/auth.out
+        run: |
+          set -euo pipefail
+          # A tiny stand-in for BOTH the GitHub OIDC token endpoint and the hub
+          # exchange endpoint: GET → an OIDC {value}; POST → the scoped session.
+          node -e '
+            const http = require("http");
+            const srv = http.createServer((req, res) => {
+              let body = "";
+              req.on("data", (c) => (body += c));
+              req.on("end", () => {
+                res.setHeader("content-type", "application/json");
+                if (req.method === "GET") {
+                  res.end(JSON.stringify({ value: "fake.oidc.jwt" }));
+                } else {
+                  const sent = JSON.parse(body || "{}");
+                  if (sent.token !== "fake.oidc.jwt") { res.statusCode = 400; return res.end("{}"); }
+                  res.end(JSON.stringify({
+                    access_token: "scoped.session.jwt",
+                    store_id: "a".repeat(64),
+                    expires_in: 900,
+                  }));
+                }
+              });
+            });
+            srv.listen(0, "127.0.0.1", () => {
+              require("fs").writeFileSync(process.env.RUNNER_TEMP + "/port", String(srv.address().port));
+            });
+          ' &
+          # Wait for the server to write its port.
+          for _ in $(seq 1 50); do [ -f "$RUNNER_TEMP/port" ] && break; sleep 0.1; done
+          PORT="$(cat "$RUNNER_TEMP/port")"
+          export DIG_API_BASE="http://127.0.0.1:$PORT/v1"
+          export ACTIONS_ID_TOKEN_REQUEST_URL="http://127.0.0.1:$PORT/idtoken"
+          export ACTIONS_ID_TOKEN_REQUEST_TOKEN="runtime-bearer"
+
+          node src/auth.mjs
+
+          # The scoped session was written for digstore, and the store id was handed off.
+          test -f "$DIG_IDENTITY_DIR/session.json"
+          node -e '
+            const s = require(process.env.DIG_IDENTITY_DIR + "/session.json");
+            if (s.access_token !== "scoped.session.jwt") throw new Error("bad session token");
+            if (!s.api_base.endsWith("/v1")) throw new Error("bad api_base");
+            console.log("session.json OK");
+          '
+          grep -q "store-id<<" "$GITHUB_OUTPUT"
+          # The session token must NOT be echoed to the log.
+          ! grep -rq "scoped.session.jwt" "$GITHUB_OUTPUT" || (echo "token leaked to GITHUB_OUTPUT" && exit 1)
+
+      - name: auth.mjs — fails closed without id-token permission
+        env:
+          DIG_IDENTITY_DIR: ${{ runner.temp }}/dig-identity2
+          DIG_API_BASE: https://hub.dig.net/v1
+        run: |
+          if node src/auth.mjs 2>err.log; then
+            echo "expected failure when ACTIONS_ID_TOKEN_REQUEST_* are unset" && exit 1
+          fi
+          grep -qi "id-token: write" err.log
+
+      - name: report.mjs — renders a preview build comment body to the job summary
+        env:
+          GITHUB_STEP_SUMMARY: ${{ runner.temp }}/summary.md
+          GITHUB_OUTPUT: ${{ runner.temp }}/report.out
+          DIG_PREVIEW: "true"
+        run: |
+          cat > "$RUNNER_TEMP/preview.json" <<'JSON'
+          { "preview": true, "spent": false, "root": "bbbb", "store_id": "aaaa",
+            "capsule": "aaaa:bbbb", "content_address": "dig://aaaa:bbbb/",
+            "artifact": "/tmp/x.dig", "artifact_size": 10, "resources": 1 }
+          JSON
+          node src/report.mjs "$RUNNER_TEMP/preview.json"
+          grep -qi "preview" "$GITHUB_STEP_SUMMARY"
+          grep -q "dig://aaaa:bbbb/" "$GITHUB_STEP_SUMMARY"
+          grep -qx 'preview=true' "$GITHUB_OUTPUT" || grep -q 'preview<<' "$GITHUB_OUTPUT"
