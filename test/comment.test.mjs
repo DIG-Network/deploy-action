@@ -46,6 +46,28 @@ test("a preview deploy is labelled as a free preview (Wave-2 #18)", () => {
   assert.match(body, /preview/i);
 });
 
+test("a FREE preview build (#18) shows the shareable address and no spend", () => {
+  const r = parseDeployJson(
+    JSON.stringify({
+      preview: true,
+      spent: false,
+      mocked: false,
+      root: ROOT,
+      store_id: STORE,
+      capsule: `${STORE}:${ROOT}`,
+      content_address: `dig://${STORE}:${ROOT}/`,
+      artifact: "/tmp/.dig-preview/x.dig",
+      artifact_size: 4096,
+      resources: 3,
+    }),
+  );
+  const body = buildCommentBody({ result: r, sha: "abc", preview: true });
+  assert.match(body, /preview/i, "labelled a preview");
+  assert.match(body, new RegExp(`dig://${STORE}:${ROOT}/`), "shows the shareable content address");
+  assert.doesNotMatch(body, /100 DIG/, "a free preview costs nothing");
+  assert.match(body, /free|no.?spend|nothing (was )?spent/i, "states it is free");
+});
+
 test("a skipped (--if-changed) deploy says nothing was spent", () => {
   const r = parseDeployJson(
     JSON.stringify({

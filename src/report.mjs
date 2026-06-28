@@ -75,7 +75,9 @@ async function main() {
 
   writeOutputs(outputs);
 
-  const preview = envBool("DIG_PREVIEW", false);
+  // A preview is whatever the CLI reported (a real `--preview` free build), OR an
+  // explicit DIG_PREVIEW request from the action — either marks this PR-preview.
+  const preview = result.preview === true || envBool("DIG_PREVIEW", false);
   const sha =
     process.env.DIG_DEPLOY_SHA ||
     process.env.GITHUB_SHA ||
@@ -110,6 +112,8 @@ async function main() {
   // Surface a human line in the log.
   if (result.skipped) {
     console.log(`DIG deploy skipped (unchanged): ${result.capsule ?? ""}`);
+  } else if (result.preview) {
+    console.log(`DIG preview (free, no spend): ${result.contentAddress ?? result.capsule ?? ""}`);
   } else if (result.dryRun) {
     console.log(`DIG dry run: would publish ${result.capsule ?? ""}`);
   } else {

@@ -29,7 +29,16 @@ export function buildCommentBody({ result, sha, preview = false }) {
   const kind = preview ? "Preview" : "Deployment";
 
   // --- Header ---------------------------------------------------------------
-  if (result.skipped) {
+  if (result.preview) {
+    // #18: a FREE preview build — verified through the real dig:// read path,
+    // no chain, no wallet, no spend. The shareable content address is shown below.
+    lines.push("### DIG Preview — free build, nothing spent");
+    lines.push("");
+    lines.push(
+      "Built and verified through the real `dig://` read path — **no chain, no spend**. " +
+        "Share the preview address below; it is content-addressed, so it is stable for this build.",
+    );
+  } else if (result.skipped) {
     lines.push(`### DIG ${kind} — unchanged, nothing published`);
     lines.push("");
     lines.push(
@@ -71,9 +80,17 @@ export function buildCommentBody({ result, sha, preview = false }) {
   }
 
   const rows = [];
-  if (result.digUrl) rows.push(["dig:// URL", `\`${result.digUrl}\``]);
-  if (result.urn) rows.push(["URN (permalink)", `\`${result.urn}\``]);
-  if (result.hubUrl) rows.push(["Open on the hub", `[${result.hubUrl}](${result.hubUrl})`]);
+  // A free preview surfaces its shareable content address (the root-pinned dig://
+  // URL of the ephemeral preview store); a real deploy surfaces the live dig://
+  // URL + URN + hub URL instead.
+  if (result.preview && result.contentAddress) {
+    rows.push(["Preview address", `\`${result.contentAddress}\``]);
+  }
+  if (result.digUrl && !result.preview) rows.push(["dig:// URL", `\`${result.digUrl}\``]);
+  // URN + hub URL describe the PRODUCTION store; a preview store is ephemeral, so
+  // they are omitted for a preview (its address is the content-address above).
+  if (result.urn && !result.preview) rows.push(["URN (permalink)", `\`${result.urn}\``]);
+  if (result.hubUrl && !result.preview) rows.push(["Open on the hub", `[${result.hubUrl}](${result.hubUrl})`]);
   if (result.root) rows.push(["Root", `\`${short(result.root)}\``]);
   // Full coin id (not shortened): it is the on-chain provenance a developer
   // copies to look the deploy up on a block explorer (#24).
