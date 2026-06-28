@@ -22,9 +22,12 @@ function emitOutput(key, value) {
 }
 
 const forcePreview = /^(1|true|yes)$/i.test((process.env.DIG_FORCE_PREVIEW || "").trim());
+// Read the event from DIG_* overrides first, falling back to the runner's reserved
+// GITHUB_* vars. The action sets only the DIG_* ones (a step `env:` CANNOT override
+// a reserved GITHUB_* var, so the smoke test — and the action — must use DIG_*).
 const { preview, environment } = decideMode({
-  eventName: process.env.GITHUB_EVENT_NAME,
-  ref: process.env.GITHUB_REF,
+  eventName: process.env.DIG_EVENT_NAME || process.env.GITHUB_EVENT_NAME,
+  ref: process.env.DIG_REF || process.env.GITHUB_REF,
   defaultBranch: process.env.DIG_DEFAULT_BRANCH || process.env.GITHUB_REF_NAME,
   forcePreview,
 });

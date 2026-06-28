@@ -154,10 +154,12 @@ runs:
     - name: Decide deploy mode (preview vs deploy)
       id: mode
       shell: bash
+      # Pass the event via DIG_* (a step `env:` cannot override the reserved
+      # GITHUB_EVENT_NAME / GITHUB_REF the runner sets); mode.mjs prefers DIG_*.
       env:
         ACTION_PATH: ${{ github.action_path }}
-        GITHUB_EVENT_NAME: ${{ github.event_name }}
-        GITHUB_REF: ${{ github.ref }}
+        DIG_EVENT_NAME: ${{ github.event_name }}
+        DIG_REF: ${{ github.ref }}
         DIG_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         DIG_FORCE_PREVIEW: ${{ inputs.preview }}
       run: |

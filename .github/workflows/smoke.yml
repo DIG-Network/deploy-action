@@ -42,10 +42,13 @@ jobs:
             console.log("action.yml inputs/outputs present");
           '
 
+      # NOTE: the runner's GITHUB_EVENT_NAME / GITHUB_REF are reserved and cannot be
+      # overridden by a step `env:`, so drive mode.mjs through its DIG_* overrides
+      # (exactly what the action sets).
       - name: mode.mjs — pull_request decides preview
         env:
-          GITHUB_EVENT_NAME: pull_request
-          GITHUB_REF: refs/heads/feature
+          DIG_EVENT_NAME: pull_request
+          DIG_REF: refs/heads/feature
           DIG_DEFAULT_BRANCH: main
           GITHUB_OUTPUT: ${{ runner.temp }}/mode-pr.out
         run: |
@@ -55,8 +58,8 @@ jobs:
 
       - name: mode.mjs — push to default branch decides production deploy
         env:
-          GITHUB_EVENT_NAME: push
-          GITHUB_REF: refs/heads/main
+          DIG_EVENT_NAME: push
+          DIG_REF: refs/heads/main
           DIG_DEFAULT_BRANCH: main
           GITHUB_OUTPUT: ${{ runner.temp }}/mode-push.out
         run: |
