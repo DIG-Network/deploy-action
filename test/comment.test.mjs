@@ -34,7 +34,10 @@ test("the comment body carries a stable hidden marker for upsert", () => {
 test("a successful deploy comment includes capsule, URLs, coin and cost", () => {
   const body = buildCommentBody({ result: success(), sha: "deadbeef0123" });
   assert.match(body, new RegExp(`${STORE}:${ROOT}`), "capsule");
-  assert.match(body, /dig:\/\//, "dig:// url");
+  // The open address is the user-facing chia:// content-open URL (NOT dig://).
+  assert.match(body, new RegExp(`chia://${STORE}/`), "chia:// open url");
+  assert.match(body, /\bOpen\b/, "an 'Open' row pointing the user at the deployment");
+  assert.doesNotMatch(body, /dig:\/\/\b/, "no bare dig:// open URL in the comment");
   assert.match(body, new RegExp(`hub\\.dig\\.net/stores/${STORE}`), "hub url");
   assert.match(body, new RegExp(COIN), "coin id");
   assert.match(body, /\$DIG/, "$DIG cost (#24) — dynamic per-capsule price");
@@ -55,7 +58,7 @@ test("a FREE preview build (#18) shows the shareable address and no spend", () =
       root: ROOT,
       store_id: STORE,
       capsule: `${STORE}:${ROOT}`,
-      content_address: `dig://${STORE}:${ROOT}/`,
+      content_address: `chia://${STORE}:${ROOT}/`,
       artifact: "/tmp/.dig-preview/x.dig",
       artifact_size: 4096,
       resources: 3,
@@ -63,7 +66,7 @@ test("a FREE preview build (#18) shows the shareable address and no spend", () =
   );
   const body = buildCommentBody({ result: r, sha: "abc", preview: true });
   assert.match(body, /preview/i, "labelled a preview");
-  assert.match(body, new RegExp(`dig://${STORE}:${ROOT}/`), "shows the shareable content address");
+  assert.match(body, new RegExp(`chia://${STORE}:${ROOT}/`), "shows the shareable chia:// content address");
   assert.doesNotMatch(body, /\*\*Cost\*\*/, "a free preview shows no cost line");
   assert.match(body, /free|no.?spend|nothing (was )?spent/i, "states it is free");
 });

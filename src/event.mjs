@@ -6,7 +6,7 @@
 //     repository DEFAULT branch           → production deploy (a real capsule)
 //   - anything else (a push to a non-
 //     default branch, etc.)               → preview, so a branch push never
-//                                           triggers a surprise 100-DIG spend.
+//                                           triggers a surprise $DIG spend.
 //
 // `forcePreview` (the action's `preview: true` input) pins preview regardless, so
 // a user can preview a default-branch push on purpose. Pure function — unit-tested.

@@ -54,7 +54,8 @@ const SKIPPED_STDOUT = JSON.stringify(
 // `--preview` (#18): a FREE preview capsule — no chain, no spend. Single object
 // taken verbatim from digstore commands/deploy.rs `preview()` JSON emit. NOTE the
 // store_id is the EPHEMERAL preview store (content-derived), not the production
-// store, and `content_address` is the root-pinned dig:// URL of the preview.
+// store, and `content_address` is the user-facing chia:// content-open address of
+// the preview (digstore now emits chia://<store>:<root>/ via branding::content_url).
 const PREVIEW_STDOUT = JSON.stringify(
   {
     preview: true,
@@ -63,7 +64,7 @@ const PREVIEW_STDOUT = JSON.stringify(
     root: ROOT,
     store_id: STORE,
     capsule: `${STORE}:${ROOT}`,
-    content_address: `dig://${STORE}:${ROOT}/`,
+    content_address: `chia://${STORE}:${ROOT}/`,
     artifact: "/tmp/x/.dig-preview/bbb.dig",
     artifact_size: 4096,
     resources: 7,
@@ -104,10 +105,15 @@ test("parses a successful multi-block deploy and merges the blocks", () => {
   assert.equal(r.spent, true, "a real publish spends DIG");
 });
 
-test("derives the dig:// URL from store id + root (CLI does not emit it)", () => {
+test("derives the chia:// open URL from store id (CLI does not emit it)", () => {
   const r = parseDeployJson(SUCCESS_STDOUT);
-  assert.equal(r.digUrl, `dig://${STORE}/`);
-  // Root-pinned URN, matching hub address.js (urn:dig:chia:<store>:<root>).
+  // chia:// is the user-facing content-open scheme (the DIG Browser/extension register it),
+  // mirroring digstore's action.yml chia_url (rootless = latest tip). digUrl is a DEPRECATED
+  // alias carrying the SAME chia:// value for back-compat.
+  assert.equal(r.chiaUrl, `chia://${STORE}/`);
+  assert.equal(r.digUrl, `chia://${STORE}/`);
+  // Root-pinned URN, matching hub address.js (urn:dig:chia:<store>:<root>). The urn:dig: namespace
+  // stays dig:// — it is exempt from the user-facing chia:// rename.
   assert.equal(r.urn, `urn:dig:chia:${STORE}:${ROOT}`);
 });
 
@@ -139,8 +145,8 @@ test("parses a --preview free build (no chain, no spend)", () => {
   assert.equal(r.capsule, `${STORE}:${ROOT}`);
   assert.equal(r.root, ROOT);
   assert.equal(r.storeId, STORE);
-  // The preview's shareable address (root-pinned dig:// URL from the CLI).
-  assert.equal(r.contentAddress, `dig://${STORE}:${ROOT}/`);
+  // The preview's shareable address (root-pinned chia:// content-open URL from the CLI).
+  assert.equal(r.contentAddress, `chia://${STORE}:${ROOT}/`);
   assert.equal(r.artifact, "/tmp/x/.dig-preview/bbb.dig");
   // A preview is a success, never a failure (it pushed nothing on-chain).
   assert.equal(r.pushed, false);
@@ -152,7 +158,8 @@ test("toOutputs surfaces preview + content-address outputs", () => {
   const out = toOutputs(r);
   assert.equal(out.preview, "true");
   assert.equal(out.spent, "false");
-  assert.equal(out["content-address"], `dig://${STORE}:${ROOT}/`);
+  // The shareable preview address is the chia:// content-open URL digstore printed.
+  assert.equal(out["content-address"], `chia://${STORE}:${ROOT}/`);
 });
 
 test("tolerates leading human noise lines before the JSON blocks", () => {
@@ -197,7 +204,9 @@ test("toOutputs maps a parsed result to the action's step outputs", () => {
   assert.equal(out.capsule, `${STORE}:${ROOT}`);
   assert.equal(out.root, ROOT);
   assert.equal(out["store-id"], STORE);
-  assert.equal(out["dig-url"], `dig://${STORE}/`);
+  // chia-url is the user-facing content-open address; dig-url is its DEPRECATED alias (same value).
+  assert.equal(out["chia-url"], `chia://${STORE}/`);
+  assert.equal(out["dig-url"], `chia://${STORE}/`);
   assert.equal(out.urn, `urn:dig:chia:${STORE}:${ROOT}`);
   assert.equal(out["hub-url"], `https://hub.dig.net/stores/${STORE}`);
   assert.equal(out["coin-id"], COIN);

@@ -61,8 +61,10 @@ test("report writes step outputs for a successful deploy and exits 0", () => {
   assert.match(outputs, new RegExp(`capsule<<`), "capsule output written");
   assert.match(outputs, new RegExp(`${STORE}:${ROOT}`));
   assert.match(outputs, /store-id<</);
+  assert.match(outputs, /chia-url<</);
   assert.match(outputs, /dig-url<</);
-  assert.match(outputs, new RegExp(`dig://${STORE}/`));
+  // Both chia-url and the deprecated dig-url alias carry the chia:// content-open value.
+  assert.match(outputs, new RegExp(`chia://${STORE}/`));
   assert.match(outputs, /hub-url<</);
   assert.match(summary, new RegExp(`${STORE}:${ROOT}`), "summary carries the capsule");
 });
