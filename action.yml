@@ -15,14 +15,23 @@ inputs:
     required: false
     default: ""
   if-changed:
-    description: "Skip the deploy (and the 100 DIG + XCH spend) when the build is byte-identical to the live version. The no-op guard that lets you run this on every push."
+    description: "Skip the deploy (and the $DIG + XCH spend) when the build is byte-identical to the live version. The no-op guard that lets you run this on every push."
     required: false
     default: "true"
   preview:
     description: >-
-      PR preview deploy. Wave-2 (#18) free, no-spend per-PR previews are NOT YET available — until
-      the preview infrastructure ships, `preview: true` publishes a REAL capsule on Chia (100 DIG)
-      labelled as a preview. Leave false for production deploys.
+      Force a PR-style preview even off the default branch. Wave-2 (#18) free, no-spend per-PR
+      previews are NOT YET available — until that infra ships, `preview: true` would publish a REAL
+      capsule on Chia (a $DIG spend) merely labelled "preview". To avoid a silent spend, this action
+      FAILS CLOSED when `preview: true` is set unless you also set `allow-paid-preview: true`. PRs
+      already preview automatically (event-derived, never blocked). Leave false for production deploys.
+    required: false
+    default: "false"
+  allow-paid-preview:
+    description: >-
+      Opt in to the paid `preview: true` path while free no-spend previews (#18) are unavailable.
+      Required ONLY when you set `preview: true`; without it a forced preview fails closed rather than
+      silently publishing a real ($DIG) capsule. Has no effect on the automatic event-based preview.
     required: false
     default: "false"
   digstore-version:
@@ -54,8 +63,8 @@ inputs:
     default: ""
   passphrase:
     description: >-
-      The deploy wallet's DIGSTORE_PASSPHRASE — unlocks the seed that PAYS the on-chain fee (100 DIG
-      + XCH) for a real deploy to the default branch. NOT needed for PR previews (free, no chain). In
+      The deploy wallet's DIGSTORE_PASSPHRASE — unlocks the seed that PAYS the on-chain fee ($DIG +
+      XCH) for a real deploy to the default branch. NOT needed for PR previews (free, no chain). In
       keyless mode the writer-key advances the root and the OIDC session authorizes the push; this
       seed only funds the spend. Use a DEDICATED deploy wallet funded with only what your deploys
       need — never your main wallet. Pass from a repo SECRET only.
@@ -138,11 +147,28 @@ outputs:
     description: "`true` when --if-changed skipped a no-op deploy."
     value: ${{ steps.report.outputs.skipped }}
   spent:
-    description: "`true` when the deploy spent DIG (a real publish)."
+    description: "`true` when the deploy spent $DIG (a real publish)."
     value: ${{ steps.report.outputs.spent }}
   pushed:
     description: "`true` when the capsule was published to the hub."
     value: ${{ steps.report.outputs.pushed }}
+  json:
+    description: >-
+      The whole normalized deploy result as ONE JSON blob (incl. the `outcome`). Parse this once
+      (`JSON.parse(steps.dig.outputs.json)`) instead of re-stitching the scalar outputs.
+    value: ${{ steps.report.outputs.json }}
+  outcome:
+    description: >-
+      The catalogued result: one of success | skipped | preview | dry-run | anchor-failed |
+      push-failed | timed-out | no-credential | unauthorized | oidc-error | blocked-paid-preview |
+      failed. Branch on this instead of scraping log lines. Written even on the failure path.
+    value: ${{ steps.report.outputs.outcome }}
+  failure-reason:
+    description: "A human/machine reason string when `outcome` is a failure; empty otherwise."
+    value: ${{ steps.report.outputs.failure-reason }}
+  environment:
+    description: "The resolved deploy environment: `preview` or `production` (from the event mode)."
+    value: ${{ steps.mode.outputs.environment }}
 
 runs:
   using: "composite"
@@ -161,7 +187,10 @@ runs:
         DIG_REF: ${{ github.ref }}
         DIG_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         DIG_FORCE_PREVIEW: ${{ inputs.preview }}
+        DIG_ALLOW_PAID_PREVIEW: ${{ inputs.allow-paid-preview }}
       run: |
+        # Fails closed (exit 1) when `preview: true` would silently spend without
+        # `allow-paid-preview: true` — before any install/deploy/spend happens.
         node "$ACTION_PATH/src/mode.mjs"
 
     # A real (non-preview) deploy needs a wallet seed to PAY the on-chain fee. A
@@ -264,7 +293,10 @@ runs:
 
     - name: Report (outputs + PR comment + deployment status)
       id: report
-      if: always() && steps.deploy.outputs['json-file'] != ''
+      # ALWAYS run so a catalogued `outcome` + `failure-reason` is written even on the failure path
+      # (a guard/auth/deploy step aborting before any JSON). report.mjs handles an empty input by
+      # emitting the failure outcome from the DIG_PRIOR_* hints below.
+      if: always()
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
@@ -275,5 +307,22 @@ runs:
         DIG_DEPLOY_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         ACTION_PATH: ${{ github.action_path }}
         DEPLOY_JSON_FILE: ${{ steps.deploy.outputs.json-file }}
+        # Pre-deploy failure context, mapped to the catalogued outcome enum so report.mjs can emit
+        # the CAUSE (not just "failed") when there is no deploy JSON:
+        #   - the spend guard fired (forced paid preview without opt-in),
+        #   - the funding-credential guard fired (a real deploy with no passphrase),
+        #   - keyless OIDC exchange failed (401 audience / 403 unbound repo).
+        DIG_PRIOR_OUTCOME: >-
+          ${{ steps.mode.outputs.paid-preview-blocked == 'true' && 'blocked-paid-preview'
+            || (steps.mode.outcome == 'failure' && 'failed')
+            || (steps.keyless.outcome == 'failure' && 'oidc-error')
+            || (steps.deploy.outcome == 'failure' && 'failed')
+            || '' }}
+        DIG_PRIOR_REASON: >-
+          ${{ steps.mode.outputs.paid-preview-blocked == 'true'
+            && 'preview: true would publish a real (paid) capsule; set allow-paid-preview: true to opt in'
+            || (steps.keyless.outcome == 'failure' && 'keyless OIDC exchange failed (check id-token permission + repo→store binding)')
+            || (steps.deploy.outcome == 'failure' && 'digstore deploy failed — see the deploy step log')
+            || 'the deploy failed before producing a result' }}
       run: |
         node "$ACTION_PATH/src/report.mjs" "$DEPLOY_JSON_FILE"

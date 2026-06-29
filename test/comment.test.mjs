@@ -37,7 +37,7 @@ test("a successful deploy comment includes capsule, URLs, coin and cost", () => 
   assert.match(body, /dig:\/\//, "dig:// url");
   assert.match(body, new RegExp(`hub\\.dig\\.net/stores/${STORE}`), "hub url");
   assert.match(body, new RegExp(COIN), "coin id");
-  assert.match(body, /100 DIG/, "DIG cost (#24)");
+  assert.match(body, /\$DIG/, "$DIG cost (#24) — dynamic per-capsule price");
   assert.match(body, /deadbeef/, "commit sha");
 });
 
@@ -64,7 +64,7 @@ test("a FREE preview build (#18) shows the shareable address and no spend", () =
   const body = buildCommentBody({ result: r, sha: "abc", preview: true });
   assert.match(body, /preview/i, "labelled a preview");
   assert.match(body, new RegExp(`dig://${STORE}:${ROOT}/`), "shows the shareable content address");
-  assert.doesNotMatch(body, /100 DIG/, "a free preview costs nothing");
+  assert.doesNotMatch(body, /\*\*Cost\*\*/, "a free preview shows no cost line");
   assert.match(body, /free|no.?spend|nothing (was )?spent/i, "states it is free");
 });
 
@@ -82,7 +82,7 @@ test("a skipped (--if-changed) deploy says nothing was spent", () => {
   );
   const body = buildCommentBody({ result: r, sha: "abc" });
   assert.match(body, /unchanged|no.?op|nothing (was )?(deployed|spent|published)/i);
-  assert.doesNotMatch(body, /100 DIG/, "skipped deploys cost nothing");
+  assert.doesNotMatch(body, /\*\*Cost\*\*/, "skipped deploys show no cost line");
 });
 
 test("a failed hub push surfaces the error in the comment", () => {

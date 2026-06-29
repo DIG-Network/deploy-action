@@ -65,7 +65,7 @@ export function buildCommentBody({ result, sha, preview = false }) {
       "> [!NOTE]",
       "> Free per-PR preview deploys (no on-chain spend) are a planned Wave-2 feature (#18). " +
         "Until the preview infrastructure ships, `preview: true` publishes a real capsule on Chia " +
-        "(100 DIG). Treat this as a real deployment for now.",
+        "(a **$DIG** spend). Treat this as a real deployment for now.",
     );
   } else {
     lines.push("### DIG Deployment — live and permanent");
@@ -112,8 +112,9 @@ export function buildCommentBody({ result, sha, preview = false }) {
       lines.push("");
     }
   } else if (result.spent) {
-    // A real publish always costs the flat capsule price (see ROADMAP: 100 DIG).
-    lines.push("**Cost** 100 DIG + a small XCH fee.");
+    // A real publish costs the per-capsule $DIG price (dynamic, USD-pegged — see SYSTEM.md) plus a
+    // small XCH network fee. We surface the $DIG sigil rather than a hardcoded amount.
+    lines.push("**Cost** $DIG (per-capsule) + a small XCH fee.");
     lines.push("");
   }
 

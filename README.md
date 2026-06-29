@@ -38,9 +38,9 @@ Under the hood, on a real deploy it:
    status (a red X if the on-chain anchor or hub push failed/timed out — so a broken deploy can block
    merge).
 
-You create the store once (`digstore init`, which mints it and spends 100 DIG). This action only
-**advances** an existing store — it never mints. Each real deploy is a new capsule costing **100 DIG
-+ a small XCH fee**, paid from your deploy wallet. **PR previews are free.**
+You create the store once (`digstore init`, which mints it and spends **$DIG**). This action only
+**advances** an existing store — it never mints. Each real deploy is a new capsule costing **$DIG**
+(a per-capsule price) **+ a small XCH fee**, paid from your deploy wallet. **PR previews are free.**
 
 ---
 
@@ -79,7 +79,7 @@ jobs:
           digstore-version: v0.6.0           # PIN for reproducible CI (carries #17/#18)
           # KEYLESS: no dighub secret. The on-chain spend still needs a funding wallet:
           writer-key: ${{ secrets.DIG_WRITER_KEY }}   # advances the root (revocable, root-only)
-          passphrase: ${{ secrets.DIGSTORE_PASSPHRASE }}  # funds the 100 DIG + XCH fee
+          passphrase: ${{ secrets.DIGSTORE_PASSPHRASE }}  # funds the $DIG + XCH fee
           mnemonic:   ${{ secrets.DIG_MNEMONIC }}
           # store-id comes from the OIDC binding (or dig.toml). Pass store-id: to override.
 
@@ -93,8 +93,11 @@ jobs:
 - **Pushes to the default branch** run `digstore deploy --if-changed`: a push whose build is
   byte-identical to the live version is a **no-op** (no spend, nothing published), so it is safe to
   run on every push.
-- A push to a **non-default** branch previews (never a surprise spend). Set `preview: true` to force
-  preview on any event.
+- A push to a **non-default** branch previews (never a surprise spend).
+- The explicit `preview: true` input **fails closed**: until free no-spend previews (#18) ship,
+  `--preview` would still publish a real (paid) capsule, so a flag named "preview" must not silently
+  spend. Set `allow-paid-preview: true` to deliberately publish a paid build from `preview: true`.
+  (The automatic PR / non-default-branch preview is event-derived and never blocked.)
 
 ### Keyless auth — one-time binding
 
@@ -120,7 +123,7 @@ wallet can spend, and that is needed solely on a real deploy (never for a previe
 |---|---|---|
 | **Keyless OIDC session** | Authorize the DIGHub head push for the bound store | Minted per-run from the GitHub OIDC token — **no secret in the repo** |
 | **Writer deploy-key** (`writer-key`) | Advance the store's **on-chain root only** — never change owner, never melt; **revocable** | Repo secret |
-| **Funding wallet** (`passphrase` + `mnemonic`) | **Pay** the 100 DIG + XCH fee for a real deploy | Repo secret |
+| **Funding wallet** (`passphrase` + `mnemonic`) | **Pay** the $DIG + XCH fee for a real deploy | Repo secret |
 
 > [!CAUTION]
 > **The funding wallet's seed can spend all of that wallet's DIG and XCH.** It only signs the
@@ -128,7 +131,7 @@ wallet can spend, and that is needed solely on a real deploy (never for a previe
 > it anyway:
 >
 > - Use a **dedicated deploy wallet**, never your main wallet.
-> - Fund it with only **enough DIG for your expected deploys** (each real deploy = 100 DIG + a fee).
+> - Fund it with only **enough $DIG for your expected deploys** (each real deploy = a per-capsule $DIG price + a fee).
 > - Store it as GitHub **encrypted secrets** — never in `dig.toml` or any committed file.
 > - **PR previews are free and need none of these** — no OIDC, no writer-key, no wallet.
 
@@ -176,7 +179,8 @@ output-dir = "dist"
 | `directory` | `dist` | The built-output directory to publish. |
 | `store-id` | OIDC binding / `dig.toml` | The 64-hex store id to advance. Resolved from the keyless OIDC binding when available. |
 | `if-changed` | `true` | Skip the deploy (and the spend) when the build is byte-identical to the live version. |
-| `preview` | `false` | Force a **free preview** (`--preview`) even on a default-branch push. PRs preview automatically. |
+| `preview` | `false` | Force a preview (`--preview`) even on a default-branch push. PRs preview automatically. **Fails closed** unless `allow-paid-preview: true` (see below) — a flag named "preview" must not silently spend. |
+| `allow-paid-preview` | `false` | Opt in to the paid `preview: true` path while free no-spend previews (#18) are unavailable. Required **only** when you set `preview: true`. No effect on the automatic event-based preview. |
 | `digstore-version` | `v0.6.0` | The `digstore` CLI version: a release tag, git ref/branch, or `latest`. **Pin this.** Needs #17/#18 (>= `v0.6.0`). |
 | `keyless` | `true` | Keyless CI auth: exchange the GitHub OIDC token (`audience=dighub`) for a store-scoped session — no dighub secret. Needs `id-token: write`. |
 | `api-base` | `https://hub.dig.net/v1` | The dighub control-plane API base for the OIDC exchange. |
@@ -209,12 +213,54 @@ All credentials should be passed from **repo secrets**, never inline.
 | `content-address` | On a `--preview` build: the shareable root-pinned `dig://` address. Empty on a real deploy. |
 | `preview` | `true` when this run produced a free preview (a PR), not a real on-chain deploy. |
 | `skipped` | `true` when `--if-changed` skipped a no-op deploy. |
-| `spent` | `true` when the deploy spent DIG (a real publish). |
+| `spent` | `true` when the deploy spent $DIG (a real publish). |
 | `pushed` | `true` when the capsule was published to the hub. |
+| `json` | The whole normalized deploy result (incl. `outcome`) as **one JSON blob** — parse this once instead of re-stitching the scalar outputs. |
+| `outcome` | The catalogued result (see [Outcome enum](#outcome-enum)). Branch on this instead of scraping logs. Written even on the failure path. |
+| `failure-reason` | A reason string when `outcome` is a failure; empty otherwise. |
+| `environment` | The resolved environment: `preview` or `production` (from the event mode). |
 
 > Note: `*.on.dig.net` is an **optional, user-chosen** human domain you register for a store; it is
 > not derivable from a deploy, so the action surfaces the always-available `hub-url` and `dig://`
 > URL instead. If you have a registered domain, your site is also live at `<your-name>.on.dig.net`.
+
+### Outcome enum
+
+`outcome` is one of a stable, catalogued set so an agent (or a downstream step) can branch on the
+**cause** without scraping `::error::` log lines. It is written even when the deploy fails:
+
+| `outcome` | Meaning |
+|---|---|
+| `success` | A real capsule was published (anchored + pushed). |
+| `skipped` | `--if-changed` no-op — byte-identical to the live version; nothing spent. |
+| `preview` | A free preview build (no chain, no spend). |
+| `dry-run` | A `--dry-run` cost preview; nothing published or spent. |
+| `anchor-failed` | Anchored on-chain but the hub push did not complete. |
+| `push-failed` | The hub push was rejected (see `failure-reason`). |
+| `timed-out` | On-chain confirmation timed out. |
+| `no-credential` | A real deploy was attempted with no funding credential. |
+| `unauthorized` | Auth was rejected (e.g. OIDC audience / token). |
+| `oidc-error` | Keyless OIDC exchange failed (e.g. unbound repo→store). |
+| `blocked-paid-preview` | `preview: true` was blocked because `allow-paid-preview` was not set. |
+| `failed` | A failure that does not map to a more specific cause. |
+
+### Machine-readable consumption
+
+```yaml
+- name: Deploy to DIG
+  id: dig
+  uses: DIG-Network/deploy-action@v1
+  with: { directory: dist }
+
+- name: Act on the result
+  if: always()
+  run: |
+    echo "outcome=${{ steps.dig.outputs.outcome }}"
+    # Parse the whole result once:
+    node -e 'const r=JSON.parse(process.env.DIG);console.log(r.capsule, r.outcome)'
+  env:
+    DIG: ${{ steps.dig.outputs.json }}
+```
 
 ---
 

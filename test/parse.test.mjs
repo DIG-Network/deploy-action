@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { parseDeployJson, toOutputs } from "../src/parse.mjs";
+import { parseDeployJson, toOutputs, computeOutcome, OUTCOMES } from "../src/parse.mjs";
 
 const STORE = "a".repeat(64);
 const ROOT = "b".repeat(64);
@@ -216,4 +216,69 @@ test("toOutputs marks skipped deploys with spent=false", () => {
   assert.equal(out.skipped, "true");
   assert.equal(out.spent, "false");
   assert.equal(out["hub-url"], "");
+});
+
+// ---------------------------------------------------------------------------
+// Aggregated machine output: one `json` blob + a catalogued `outcome` enum, so
+// an agent parses ONE value (and branches on a stable outcome) instead of
+// re-stitching 12 string outputs.
+// ---------------------------------------------------------------------------
+
+test("computeOutcome catalogues each result kind to a stable enum value", () => {
+  assert.equal(computeOutcome(parseDeployJson(SUCCESS_STDOUT)), "success");
+  assert.equal(computeOutcome(parseDeployJson(SKIPPED_STDOUT)), "skipped");
+  assert.equal(computeOutcome(parseDeployJson(PREVIEW_STDOUT)), "preview");
+  assert.equal(computeOutcome(parseDeployJson(DRY_RUN_STDOUT)), "dry-run");
+});
+
+test("computeOutcome maps a hub-push failure to push-failed", () => {
+  const withErr = JSON.stringify({
+    root: ROOT,
+    capsule: `${STORE}:${ROOT}`,
+    pushed: false,
+    push_error: "remote rejected",
+  });
+  assert.equal(computeOutcome(parseDeployJson(withErr)), "push-failed");
+});
+
+test("computeOutcome maps an anchored-but-not-pushed result to anchor-failed", () => {
+  // Anchored on-chain (spent) but no push and no explicit push_error → anchor/push incomplete.
+  const r = { spent: true, pushed: false, skipped: false, dryRun: false, preview: false };
+  assert.equal(computeOutcome(r), "anchor-failed");
+});
+
+test("computeOutcome respects an explicit timedOut flag", () => {
+  const r = { timedOut: true, spent: true, pushed: false };
+  assert.equal(computeOutcome(r), "timed-out");
+});
+
+test("OUTCOMES enumerates every catalogued outcome value", () => {
+  for (const v of ["success", "skipped", "preview", "dry-run", "anchor-failed", "push-failed", "timed-out"]) {
+    assert.ok(OUTCOMES.includes(v), `OUTCOMES includes ${v}`);
+  }
+});
+
+test("toOutputs adds an aggregated json blob, an outcome, and a failure-reason", () => {
+  const r = parseDeployJson(SUCCESS_STDOUT);
+  const out = toOutputs(r);
+  // One parseable blob carrying the whole normalized result.
+  const blob = JSON.parse(out.json);
+  assert.equal(blob.capsule, `${STORE}:${ROOT}`);
+  assert.equal(blob.storeId, STORE);
+  assert.equal(blob.outcome, "success", "the aggregate carries the outcome too");
+  // The scalar outcome output + an empty failure-reason on success.
+  assert.equal(out.outcome, "success");
+  assert.equal(out["failure-reason"], "");
+});
+
+test("toOutputs surfaces a failure-reason on a push failure", () => {
+  const withErr = JSON.stringify({
+    root: ROOT,
+    capsule: `${STORE}:${ROOT}`,
+    pushed: false,
+    push_error: "remote rejected: head not fast-forward",
+  });
+  const out = toOutputs(parseDeployJson(withErr));
+  assert.equal(out.outcome, "push-failed");
+  assert.match(out["failure-reason"], /remote rejected/);
 });

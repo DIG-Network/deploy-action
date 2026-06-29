@@ -29,8 +29,12 @@ const declared = new Set(
 // The keys the implementation actually emits (values are irrelevant here).
 const emitted = new Set(Object.keys(toOutputs({})));
 
+// Outputs that are declared in action.yml but sourced from the MODE step (src/mode.mjs), not from
+// parse.mjs's toOutputs(). They are legitimately declared without being emitted by toOutputs().
+const MODE_SOURCED = new Set(["environment"]);
+
 const missingInYml = [...emitted].filter((k) => !declared.has(k));
-const missingInImpl = [...declared].filter((k) => !emitted.has(k));
+const missingInImpl = [...declared].filter((k) => !emitted.has(k) && !MODE_SOURCED.has(k));
 
 let ok = true;
 if (missingInYml.length) {
