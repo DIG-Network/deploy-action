@@ -125,8 +125,11 @@ outputs:
   store-id:
     description: "The store id that was advanced."
     value: ${{ steps.report.outputs.store-id }}
+  chia-url:
+    description: "The chia:// content-open address of the deployment (rootless = latest tip) — the user-facing scheme the DIG Browser/extension register."
+    value: ${{ steps.report.outputs.chia-url }}
   dig-url:
-    description: "The dig:// URL of the deployment (rootless = latest tip)."
+    description: "DEPRECATED alias of `chia-url` (now also a chia:// content-open address). Use `chia-url`."
     value: ${{ steps.report.outputs.dig-url }}
   urn:
     description: "The root-pinned URN permalink (urn:dig:chia:<store>:<root>)."
@@ -138,7 +141,7 @@ outputs:
     description: "The on-chain coin id of the anchored root."
     value: ${{ steps.report.outputs.coin-id }}
   content-address:
-    description: "On a `--preview` build: the shareable root-pinned dig:// address of the preview capsule. Empty on a real deploy."
+    description: "On a `--preview` build: the shareable root-pinned chia:// content-open address of the preview capsule. Empty on a real deploy."
     value: ${{ steps.report.outputs.content-address }}
   preview:
     description: "`true` when this run produced a free preview build (PR), not a real on-chain deploy."

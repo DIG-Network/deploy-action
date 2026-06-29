@@ -2,7 +2,7 @@
 // Keyless auth entrypoint: the composite action shells into this BEFORE the
 // deploy. It performs the GitHub-OIDC → dighub CI-session exchange (#23) and
 // writes the resulting short-lived, store-scoped session where digstore reads it,
-// so the §21 head push to DIGHub is authorized WITHOUT a static secret in the repo.
+// so the §21 head push to DIGHUb is authorized WITHOUT a static secret in the repo.
 //
 // Steps:
 //   1. Request a GitHub Actions OIDC id-token for audience=dighub

@@ -5,7 +5,7 @@
 // control plane verifies it (signature + issuer + audience + expiry, fail-closed
 // against GitHub's JWKS) and, if the repo+ref is bound to a store by its owner,
 // mints a short-lived store-scoped dighub session. That session authorizes the
-// §21 head push to DIGHub — there is NO static secret in the repo.
+// §21 head push to DIGHUb — there is NO static secret in the repo.
 //
 // Wire contract (pinned to hub.dig.net as shipped):
 //   - OIDC token is requested with audience=dighub          (dighub-core GITHUB_OIDC_AUDIENCE)

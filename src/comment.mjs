@@ -30,12 +30,12 @@ export function buildCommentBody({ result, sha, preview = false }) {
 
   // --- Header ---------------------------------------------------------------
   if (result.preview) {
-    // #18: a FREE preview build — verified through the real dig:// read path,
+    // #18: a FREE preview build — verified through the real chia:// read path,
     // no chain, no wallet, no spend. The shareable content address is shown below.
     lines.push("### DIG Preview — free build, nothing spent");
     lines.push("");
     lines.push(
-      "Built and verified through the real `dig://` read path — **no chain, no spend**. " +
+      "Built and verified through the real `chia://` read path — **no chain, no spend**. " +
         "Share the preview address below; it is content-addressed, so it is stable for this build.",
     );
   } else if (result.skipped) {
@@ -52,7 +52,7 @@ export function buildCommentBody({ result, sha, preview = false }) {
     lines.push(`### DIG ${kind} — anchored on-chain, hub publish failed`);
     lines.push("");
     lines.push(
-      `The new version was anchored on Chia, but publishing the capsule to DIGHub failed:`,
+      `The new version was anchored on Chia, but publishing the capsule to DIGHUb failed:`,
     );
     lines.push("");
     lines.push("```");
@@ -80,13 +80,16 @@ export function buildCommentBody({ result, sha, preview = false }) {
   }
 
   const rows = [];
-  // A free preview surfaces its shareable content address (the root-pinned dig://
-  // URL of the ephemeral preview store); a real deploy surfaces the live dig://
-  // URL + URN + hub URL instead.
+  // A free preview surfaces its shareable content address (the root-pinned chia://
+  // content-open URL of the ephemeral preview store); a real deploy surfaces the live
+  // chia:// open URL + URN + hub URL instead.
   if (result.preview && result.contentAddress) {
     rows.push(["Preview address", `\`${result.contentAddress}\``]);
   }
-  if (result.digUrl && !result.preview) rows.push(["dig:// URL", `\`${result.digUrl}\``]);
+  // "Open" = the user-facing chia:// content-open address (what they open in the DIG
+  // Browser/extension). result.chiaUrl is the canonical field; digUrl is its deprecated alias.
+  const openUrl = result.chiaUrl ?? result.digUrl;
+  if (openUrl && !result.preview) rows.push(["Open", `\`${openUrl}\``]);
   // URN + hub URL describe the PRODUCTION store; a preview store is ephemeral, so
   // they are omitted for a preview (its address is the content-address above).
   if (result.urn && !result.preview) rows.push(["URN (permalink)", `\`${result.urn}\``]);

@@ -18,10 +18,10 @@ take down.
 It does the right thing for the event automatically:
 
 - **On a pull request → a free preview.** Runs `digstore deploy --preview` — your build is compiled
-  and verified through the real `dig://` read path, producing a shareable, content-addressed preview.
+  and verified through the real `chia://` read path, producing a shareable, content-addressed preview.
   **No chain, no wallet, no spend.** The preview address is commented on the PR.
 - **On a push to your default branch → a real deploy.** Runs `digstore deploy --if-changed` — it
-  advances the store's on-chain root and publishes the new capsule to DIGHub, then sets a GitHub
+  advances the store's on-chain root and publishes the new capsule to DIGHUb, then sets a GitHub
   deployment status and comments the live URL.
 
 Under the hood, on a real deploy it:
@@ -30,10 +30,10 @@ Under the hood, on a real deploy it:
 2. **Authorizes the deploy keylessly** — exchanges the job's GitHub **OIDC** token (`audience=dighub`)
    for a short-lived, store-scoped dighub session. **No long-lived dighub secret lives in the repo.**
 3. Advances the on-chain root with a **writer deploy-key** (a revocable, writer-delegated key that can
-   change only the metadata root — never the owner, never melt), and publishes the capsule to DIGHub
+   change only the metadata root — never the owner, never melt), and publishes the capsule to DIGHUb
    over the keyless session.
-4. Parses the result and exposes the **capsule**, root, store id, `dig://` URL, URN, hub URL, on-chain
-   coin id (and, for a preview, the **content address**) as step outputs.
+4. Parses the result and exposes the **capsule**, root, store id, `chia://` open URL, URN, hub URL,
+   on-chain coin id (and, for a preview, the **content address**) as step outputs.
 5. Upserts a PR comment with the capsule + URLs + cost, creates a GitHub Deployment, and sets a commit
    status (a red X if the on-chain anchor or hub push failed/timed out — so a broken deploy can block
    merge).
@@ -87,7 +87,7 @@ jobs:
 ```
 
 - **PRs** run `digstore deploy --preview`: a **free**, content-addressed build verified through the
-  real `dig://` read path. No `id-token`/wallet is needed for a preview, but keeping the keyless
+  real `chia://` read path. No `id-token`/wallet is needed for a preview, but keeping the keyless
   permissions on the one job lets the same workflow also deploy on push. The preview address is
   output as `content-address` and commented on the PR.
 - **Pushes to the default branch** run `digstore deploy --if-changed`: a push whose build is
@@ -107,7 +107,7 @@ your repo + ref is **bound to your store**, mints a short-lived store-scoped ses
 
 Register the binding once (owner-only), then no dighub secret is ever stored in the repo:
 
-- In the hub: **Project → Settings → CI deploy → add a repo binding** for `owner/repo` + the git ref
+- In the hub: **Store → Settings → CI deploy → add a repo binding** for `owner/repo` + the git ref
   (defaults to `refs/heads/main`).
 
 If the repo isn't bound, the action fails with a clear `403` pointing you here.
@@ -121,7 +121,7 @@ wallet can spend, and that is needed solely on a real deploy (never for a previe
 
 | Credential | What it can do | How it's provided |
 |---|---|---|
-| **Keyless OIDC session** | Authorize the DIGHub head push for the bound store | Minted per-run from the GitHub OIDC token — **no secret in the repo** |
+| **Keyless OIDC session** | Authorize the DIGHUb head push for the bound store | Minted per-run from the GitHub OIDC token — **no secret in the repo** |
 | **Writer deploy-key** (`writer-key`) | Advance the store's **on-chain root only** — never change owner, never melt; **revocable** | Repo secret |
 | **Funding wallet** (`passphrase` + `mnemonic`) | **Pay** the $DIG + XCH fee for a real deploy | Repo secret |
 
@@ -147,7 +147,7 @@ On the machine where you created the store:
 digstore log --json          # copy the "store_id" field (or set it in dig.toml)
 ```
 
-1. **Bind the repo to your store (keyless):** in the hub, **Project → Settings → CI deploy → add a
+1. **Bind the repo to your store (keyless):** in the hub, **Store → Settings → CI deploy → add a
    repo binding** for `owner/repo` + ref. No secret is generated — the binding is what authorizes the
    OIDC exchange.
 2. **Authorize a writer deploy-key** for CI (hub Teams → add a "Deployer"), and store it as a secret.
@@ -189,7 +189,7 @@ output-dir = "dist"
 | `deploy-key` | — | The store's 64-hex §21 publisher deploy key (no spend authority). Usually unneeded with keyless. |
 | `mnemonic` | — | The funding wallet's BIP-39 mnemonic, imported under `passphrase`. |
 | `salt` | — | Secret salt (64-hex) for a **private** store. Omit for public stores. |
-| `remote` | public DIGHub | The remote to publish to (e.g. `dig://<store-id>` or a node URL). |
+| `remote` | public DIGHUb | The remote to publish to (e.g. `dig://<store-id>` or a node URL — the §21 remote transport, distinct from the user-facing `chia://` open address). |
 | `message` | the commit | Commit message for the new capsule. |
 | `build-command` | — | Optional shell build command to run before deploying. |
 | `wait-timeout` | `600` | Seconds to wait for on-chain confirmation (0 = don't block). |
@@ -206,11 +206,12 @@ All credentials should be passed from **repo secrets**, never inline.
 | `capsule` | The published capsule: `storeId:rootHash`. |
 | `root` | The new on-chain root hash. |
 | `store-id` | The store id that was advanced. |
-| `dig-url` | The `dig://` URL of the deployment (rootless = latest tip). |
+| `chia-url` | The `chia://` content-open address of the deployment (rootless = latest tip) — the user-facing scheme the DIG Browser/extension register. |
+| `dig-url` | **DEPRECATED** alias of `chia-url` (carries the same `chia://` value). Use `chia-url`. (This is *not* the §21 remote `dig://` locator — that is a separate developer concept.) |
 | `urn` | The root-pinned URN permalink (`urn:dig:chia:<store>:<root>`). |
-| `hub-url` | The DIGHub URL for the store (`https://hub.dig.net/stores/<id>`). |
+| `hub-url` | The DIGHUb URL for the store (`https://hub.dig.net/stores/<id>`). |
 | `coin-id` | The on-chain coin id of the anchored root. |
-| `content-address` | On a `--preview` build: the shareable root-pinned `dig://` address. Empty on a real deploy. |
+| `content-address` | On a `--preview` build: the shareable root-pinned `chia://` content-open address. Empty on a real deploy. |
 | `preview` | `true` when this run produced a free preview (a PR), not a real on-chain deploy. |
 | `skipped` | `true` when `--if-changed` skipped a no-op deploy. |
 | `spent` | `true` when the deploy spent $DIG (a real publish). |
@@ -221,8 +222,8 @@ All credentials should be passed from **repo secrets**, never inline.
 | `environment` | The resolved environment: `preview` or `production` (from the event mode). |
 
 > Note: `*.on.dig.net` is an **optional, user-chosen** human domain you register for a store; it is
-> not derivable from a deploy, so the action surfaces the always-available `hub-url` and `dig://`
-> URL instead. If you have a registered domain, your site is also live at `<your-name>.on.dig.net`.
+> not derivable from a deploy, so the action surfaces the always-available `hub-url` and `chia://`
+> open URL instead. If you have a registered domain, your site is also live at `<your-name>.on.dig.net`.
 
 ### Outcome enum
 
@@ -341,7 +342,21 @@ actionlint                            # lint the workflows
 
 - [Deploy from GitHub Actions](https://docs.dig.net/docs/digstore/cli/deploy-from-github-actions) — the docs page
 - [`digstore`](https://github.com/DIG-Network/digstore) — the CLI this action drives
-- [DIGHub](https://hub.dig.net) — where your store and its capsules are managed
+- [DIGHUb](https://hub.dig.net) — where your store and its capsules are managed
+
+## Get $DIG
+
+Each real deploy spends **$DIG** (a per-capsule price) + a small XCH fee. $DIG is a Chia CAT; buy it
+on-chain at any of the canonical venues:
+
+- [TibetSwap](https://v2.tibetswap.io/) — the XCH ↔ DIG AMM.
+- [dexie.space](https://dexie.space/offers/a406d3a9de984d03c9591c10d917593b434d5263cabe2b42f6b367df16832f81/XCH) — DIG / XCH on the dexie DEX.
+- [xch.9mm.pro](https://xch.9mm.pro/token/a406d3a9de984d03c9591c10d917593b434d5263cabe2b42f6b367df16832f81) — the DIG token on 9mm.pro.
+
+## Help
+
+- [DIG Network Discord](https://discord.gg/dignetwork) — community + support.
+- [Get help](https://docs.dig.net/docs/support/get-help) — docs troubleshooting, FAQ, and error codes.
 
 ## License
 

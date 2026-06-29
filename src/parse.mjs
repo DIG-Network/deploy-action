@@ -18,9 +18,14 @@
 //       resources } block — an EPHEMERAL preview store (content-derived id, NOT
 //       the production store), no chain, no spend.
 // We extract every top-level JSON object from the stream, merge them (last value
-// wins), and normalize to camelCase. We also DERIVE the dig:// URL and the
-// root-pinned URN, which the CLI does not emit, from store id + root (the URN
-// shape matches hub.dig.net apps/web/lib/address.js: urn:dig:chia:<store>:<root>).
+// wins), and normalize to camelCase. We also DERIVE the chia:// content-open URL
+// and the root-pinned URN, which the deploy block does not emit, from store id +
+// root. chia:// is the user-facing content scheme the DIG Browser/extension
+// register (SYSTEM.md), and mirrors digstore's own action.yml `chia_url` output
+// (rootless = latest tip). The URN shape matches hub.dig.net apps/web/lib/address.js
+// (urn:dig:chia:<store>:<root>) — the urn:dig: namespace stays dig://, it is exempt
+// from the user-facing rename. (`content_address` from a --preview is already a
+// chia:// address emitted by digstore's branding::content_url — passed through.)
 
 /**
  * Extract every top-level `{ ... }` JSON object from a stdout stream, in order.
@@ -87,7 +92,7 @@ function storeIdFromCapsule(capsule) {
  * @param {string} stdout
  * @returns {{
  *   capsule?: string, root?: string, storeId?: string, coinId?: string,
- *   hubUrl?: string, digUrl?: string, urn?: string,
+ *   hubUrl?: string, chiaUrl?: string, digUrl?: string, urn?: string,
  *   pushed: boolean, pushError?: string, spent: boolean,
  *   skipped: boolean, reason?: string, dryRun: boolean,
  *   preview: boolean, contentAddress?: string, artifact?: string,
@@ -125,9 +130,11 @@ export function parseDeployJson(stdout) {
   }
 
   // Derive the addresses the CLI doesn't emit.
-  // dig://<storeId>/  — the browser-navigable scheme (rootless = latest tip).
-  // urn:dig:chia:<storeId>:<root> — the root-pinned URN (matches hub address.js).
-  const digUrl = storeId ? `dig://${storeId}/` : undefined;
+  // chia://<storeId>/  — the user-facing content-open scheme the DIG Browser/extension register
+  //   (rootless = latest tip). Mirrors digstore's own action.yml `chia_url` output exactly.
+  // urn:dig:chia:<storeId>:<root> — the root-pinned URN permalink (matches hub address.js); the
+  //   urn:dig: namespace stays dig:// (exempt from the user-facing rename).
+  const chiaUrl = storeId ? `chia://${storeId}/` : undefined;
   const urn = storeId
     ? `urn:dig:chia:${storeId}${root ? `:${root}` : ""}`
     : undefined;
@@ -138,7 +145,10 @@ export function parseDeployJson(stdout) {
     storeId,
     coinId: merged.coin_id,
     hubUrl: merged.hub_url,
-    digUrl,
+    chiaUrl,
+    // DEPRECATED alias: same chia:// content-open value (back-compat for consumers reading dig-url).
+    // This is NOT the §21 remote dig:// locator — that scheme is a separate concept and unchanged.
+    digUrl: chiaUrl,
     urn,
     pushed: merged.pushed === true,
     pushError: merged.push_error,
@@ -147,8 +157,9 @@ export function parseDeployJson(stdout) {
     reason: merged.reason,
     dryRun,
     preview,
-    // Preview-only: the shareable root-pinned dig:// address + the local artifact
-    // (the compiled `.dig` module) the action serves to preview hosting.
+    // Preview-only: the shareable root-pinned chia:// content-open address (digstore emits it via
+    // branding::content_url) + the local artifact (the compiled `.dig` module) the action serves to
+    // preview hosting.
     contentAddress: merged.content_address,
     artifact: merged.artifact,
     costDig: merged.cost_dig,
@@ -236,12 +247,16 @@ export function toOutputs(r) {
     capsule: str(r.capsule),
     root: str(r.root),
     "store-id": str(r.storeId),
+    // chia-url is the user-facing content-open address (the scheme the DIG Browser/extension
+    // register), matching digstore's own action.yml `chia_url`. `dig-url` is a DEPRECATED alias
+    // carrying the SAME chia:// value for back-compat (NOT the §21 remote dig:// locator).
+    "chia-url": str(r.chiaUrl),
     "dig-url": str(r.digUrl),
     urn: str(r.urn),
     "hub-url": str(r.hubUrl),
     "coin-id": str(r.coinId),
-    // `content-address` is the shareable preview address (a --preview build);
-    // empty on a real deploy (use `dig-url`/`urn`/`hub-url` there).
+    // `content-address` is the shareable preview address (a --preview build), a chia:// content-open
+    // URL; empty on a real deploy (use `chia-url`/`urn`/`hub-url` there).
     "content-address": str(r.contentAddress),
     skipped: str(r.skipped),
     spent: str(r.spent),
