@@ -9,7 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { decideMode } from "../src/event.mjs";
+import { decideMode, previewSpendGuard } from "../src/event.mjs";
 
 test("pull_request → preview (free, no spend)", () => {
   const m = decideMode({ eventName: "pull_request", ref: "refs/heads/feature", defaultBranch: "main" });
@@ -48,4 +48,39 @@ test("workflow_dispatch on the default branch deploys for real", () => {
 test("a non-default default branch (e.g. master) is honored", () => {
   const m = decideMode({ eventName: "push", ref: "refs/heads/master", defaultBranch: "master" });
   assert.equal(m.preview, false);
+});
+
+// ---------------------------------------------------------------------------
+// preview-spend guard: an EXPLICIT `preview: true` input must never SILENTLY
+// publish a real (paid) capsule while the free-preview infra is absent. It must
+// fail closed unless the user explicitly opts in via `allow-paid-preview: true`.
+// The AUTO event-based preview (a PR / non-default push) is unaffected.
+// ---------------------------------------------------------------------------
+
+test("explicit preview:true is BLOCKED by default (paid preview not allowed)", () => {
+  const g = previewSpendGuard({ forcePreview: true, allowPaidPreview: false });
+  assert.equal(g.blocked, true);
+  assert.match(g.reason, /preview/i);
+});
+
+test("explicit preview:true is ALLOWED when allow-paid-preview is set", () => {
+  const g = previewSpendGuard({ forcePreview: true, allowPaidPreview: true });
+  assert.equal(g.blocked, false);
+});
+
+test("an auto event-based preview is NEVER blocked (no explicit preview input)", () => {
+  // A PR / non-default push previews without the user setting `preview: true`.
+  assert.equal(previewSpendGuard({ forcePreview: false, allowPaidPreview: false }).blocked, false);
+  assert.equal(previewSpendGuard({ forcePreview: false, allowPaidPreview: true }).blocked, false);
+});
+
+test("decideMode reports whether the preview was FORCED by the input", () => {
+  // Forced preview on a default-branch push: forced=true.
+  const forced = decideMode({ eventName: "push", ref: "refs/heads/main", defaultBranch: "main", forcePreview: true });
+  assert.equal(forced.preview, true);
+  assert.equal(forced.forced, true, "the preview was forced by the input");
+  // Auto preview on a PR: not forced.
+  const auto = decideMode({ eventName: "pull_request", ref: "refs/heads/f", defaultBranch: "main" });
+  assert.equal(auto.preview, true);
+  assert.equal(auto.forced, false, "an event-derived preview is not forced");
 });

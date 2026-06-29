@@ -16,16 +16,24 @@
 
 import { readFileSync, appendFileSync } from "node:fs";
 
-import { parseDeployJson, toOutputs } from "./parse.mjs";
+import { parseDeployJson, toOutputs, OUTCOMES } from "./parse.mjs";
 import { buildCommentBody } from "./comment.mjs";
 import { upsertComment, reportDeployment, statusState } from "./github.mjs";
 import { makeRest } from "./rest.mjs";
 
 function readInput(argvPath) {
   if (argvPath && argvPath !== "-") {
-    return readFileSync(argvPath, "utf8");
+    try {
+      return readFileSync(argvPath, "utf8");
+    } catch {
+      return ""; // the deploy step wrote no JSON file — treat as a pre-deploy failure
+    }
   }
-  return readFileSync(0, "utf8"); // fd 0 = stdin
+  try {
+    return readFileSync(0, "utf8"); // fd 0 = stdin
+  } catch {
+    return ""; // no stdin attached — treat as no deploy output (a pre-deploy failure)
+  }
 }
 
 function envBool(name, dflt = false) {
@@ -68,9 +76,46 @@ function prNumber() {
   }
 }
 
+/**
+ * When `digstore` produced no parseable JSON, an earlier step (the spend guard, the funding-credential
+ * guard, keyless OIDC, or the deploy command itself) failed before a result existed. Emit the
+ * catalogued failure outcome + reason so an agent can branch on the CAUSE without scraping logs.
+ * The aborting step passes a hint via DIG_PRIOR_OUTCOME / DIG_PRIOR_REASON.
+ * @returns {{ outcome: string, "failure-reason": string, json: string }}
+ */
+function failureOutputs() {
+  let outcome = (process.env.DIG_PRIOR_OUTCOME || "").trim();
+  if (!OUTCOMES.includes(outcome)) outcome = "failed";
+  const reason =
+    (process.env.DIG_PRIOR_REASON || "").trim() ||
+    "the deploy failed before producing a result";
+  return {
+    outcome,
+    "failure-reason": reason,
+    json: JSON.stringify({ outcome, failureReason: reason }),
+  };
+}
+
 async function main() {
   const raw = readInput(process.argv[2]);
-  const result = parseDeployJson(raw);
+
+  // No deploy JSON → a pre-deploy failure. Still write a catalogued outcome + reason (this step runs
+  // with `if: always()`), so a later step / an agent learns the cause from outputs, not log scraping.
+  let result;
+  try {
+    result = raw && raw.trim() ? parseDeployJson(raw) : null;
+  } catch {
+    result = null;
+  }
+  if (!result) {
+    const out = failureOutputs();
+    writeOutputs(out);
+    writeSummary(`### DIG Deploy — failed\n\n\`${out.outcome}\`: ${out["failure-reason"]}`);
+    console.error(`::error::DIG deploy ${out.outcome}: ${out["failure-reason"]}`);
+    process.exitCode = 1;
+    return;
+  }
+
   const outputs = toOutputs(result);
 
   writeOutputs(outputs);

@@ -160,6 +160,58 @@ export function parseDeployJson(stdout) {
   };
 }
 
+/**
+ * The catalogued, stable `outcome` enum. An agent branches on these instead of scraping `::error::`
+ * log lines. Documented in the README. The first set is reachable from a parsed deploy result; the
+ * pre-deploy failure causes (no-credential / unauthorized / oidc-error) are emitted by the report
+ * step when an earlier step aborted before `digstore` produced any JSON (see report.mjs).
+ * @type {string[]}
+ */
+export const OUTCOMES = Object.freeze([
+  "success",
+  "skipped",
+  "preview",
+  "dry-run",
+  "anchor-failed",
+  "push-failed",
+  "timed-out",
+  // Pre-deploy guard/auth failures (set by report.mjs from the aborting step, not parse):
+  "no-credential",
+  "unauthorized",
+  "oidc-error",
+  "blocked-paid-preview",
+  "failed",
+]);
+
+/**
+ * Map a parsed deploy result to a single stable {@link OUTCOMES} value.
+ *
+ * @param {Partial<ReturnType<typeof parseDeployJson>> & { timedOut?: boolean }} r
+ * @returns {string}
+ */
+export function computeOutcome(r = {}) {
+  if (r.timedOut) return "timed-out";
+  if (r.skipped) return "skipped";
+  if (r.preview) return "preview";
+  if (r.dryRun) return "dry-run";
+  if (r.pushError) return "push-failed";
+  // Anchored on-chain (spent) but the hub push did not complete and gave no explicit error.
+  if (r.spent && r.pushed === false) return "anchor-failed";
+  return "success";
+}
+
+/**
+ * The human/machine failure reason for a parsed result, or "" when there is none.
+ * @param {Partial<ReturnType<typeof parseDeployJson>> & { timedOut?: boolean }} r
+ * @returns {string}
+ */
+export function failureReason(r = {}) {
+  if (r.timedOut) return "on-chain confirmation timed out";
+  if (r.pushError) return String(r.pushError);
+  if (r.spent && r.pushed === false) return "anchored on-chain but the hub push did not complete";
+  return "";
+}
+
 /** Coerce any value to a GitHub-Actions output string ("" for null/undefined). */
 function str(v) {
   if (v === undefined || v === null) return "";
@@ -174,6 +226,12 @@ function str(v) {
  * @returns {Record<string, string>}
  */
 export function toOutputs(r) {
+  const outcome = computeOutcome(r);
+  const reason = failureReason(r);
+  // The single aggregated blob: the whole normalized result + the derived outcome, so an agent can
+  // `JSON.parse(steps.dig.outputs.json)` once instead of re-stitching the scalar outputs (and new
+  // fields don't require a new declared output each time).
+  const aggregate = { ...r, outcome, ...(reason ? { failureReason: reason } : {}) };
   return {
     capsule: str(r.capsule),
     root: str(r.root),
@@ -189,5 +247,9 @@ export function toOutputs(r) {
     spent: str(r.spent),
     pushed: str(r.pushed),
     preview: str(r.preview),
+    // Aggregated + catalogued machine outputs (see OUTCOMES).
+    json: JSON.stringify(aggregate),
+    outcome: str(outcome),
+    "failure-reason": str(reason),
   };
 }

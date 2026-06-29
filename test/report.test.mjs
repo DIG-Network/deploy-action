@@ -94,3 +94,58 @@ test("report exits 0 on an --if-changed skip", () => {
   assert.match(outputs, /skipped<</);
   assert.match(outputs, /spent<<[\s\S]*\nfalse\n/);
 });
+
+test("report writes the aggregated json + outcome outputs on success", () => {
+  const json = [
+    JSON.stringify({ root: ROOT, capsule: `${STORE}:${ROOT}`, coin_id: COIN, pushed: true }),
+    JSON.stringify({ hub_url: `https://hub.dig.net/stores/${STORE}` }),
+  ].join("\n");
+  const { outputs } = run(json);
+  assert.match(outputs, /outcome<<[\s\S]*\nsuccess\n/);
+  assert.match(outputs, /json<</, "aggregated json output written");
+});
+
+// A pre-deploy failure (no JSON): report still writes a catalogued outcome + reason from the
+// DIG_PRIOR_* hints and exits 1, so an agent learns the CAUSE from outputs (not log scraping).
+function runFailure({ priorOutcome, priorReason } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "dig-report-fail-"));
+  const outFile = join(dir, "out.txt");
+  const sumFile = join(dir, "summary.md");
+  writeFileSync(outFile, "");
+  writeFileSync(sumFile, "");
+  const env = {
+    ...process.env,
+    GITHUB_OUTPUT: outFile,
+    GITHUB_STEP_SUMMARY: sumFile,
+    DIG_COMMENT_ON_PR: "false",
+    GITHUB_TOKEN: "",
+    GITHUB_EVENT_PATH: "",
+    GITHUB_REPOSITORY: "DIG-Network/example",
+    ...(priorOutcome ? { DIG_PRIOR_OUTCOME: priorOutcome } : {}),
+    ...(priorReason ? { DIG_PRIOR_REASON: priorReason } : {}),
+  };
+  let failed = false;
+  try {
+    // Pass an empty file path arg → readInput returns "" → the pre-deploy failure path.
+    execFileSync("node", [ENTRY, ""], { env, stdio: "pipe", input: "" });
+  } catch {
+    failed = true;
+  }
+  return { failed, outputs: readFileSync(outFile, "utf8") };
+}
+
+test("report emits a catalogued failure outcome when there is no deploy JSON", () => {
+  const { failed, outputs } = runFailure({
+    priorOutcome: "blocked-paid-preview",
+    priorReason: "preview: true would publish a real capsule",
+  });
+  assert.equal(failed, true, "a pre-deploy failure exits nonzero");
+  assert.match(outputs, /outcome<<[\s\S]*\nblocked-paid-preview\n/);
+  assert.match(outputs, /failure-reason<</);
+});
+
+test("report falls back to the `failed` outcome for an unrecognized prior hint", () => {
+  const { failed, outputs } = runFailure({ priorOutcome: "not-a-real-outcome" });
+  assert.equal(failed, true);
+  assert.match(outputs, /outcome<<[\s\S]*\nfailed\n/);
+});
