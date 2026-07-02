@@ -333,10 +333,14 @@ This action follows the standard GitHub Action major-tag convention:
 
 ```sh
 node --test                           # run the unit tests
+node .github/scripts/coverage-gate.mjs 80  # tests + enforce >= 80% line coverage (per src/ module + overall)
 node .github/scripts/check-action.mjs # assert action.yml outputs match the implementation
 shellcheck scripts/install-digstore.sh
 actionlint                            # lint the workflows
 ```
+
+The normative contract (inputs, outputs, the keyless OIDC exchange, the deploy-JSON parse rules, the
+outcome enum, and the reporting side effects) is specified in [`SPEC.md`](./SPEC.md).
 
 ## Related
 
