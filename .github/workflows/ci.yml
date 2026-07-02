@@ -19,6 +19,8 @@ jobs:
           node-version: "20"
       - name: Run tests
         run: node --test
+      - name: Coverage gate (>= 80% lines, per shipped src/ module + overall)
+        run: node .github/scripts/coverage-gate.mjs 80
       - name: action.yml / outputs contract check
         run: node .github/scripts/check-action.mjs
 

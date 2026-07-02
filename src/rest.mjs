@@ -4,7 +4,10 @@
 // of methods src/github.mjs calls, with the SAME shape Octokit's `.rest` uses
 // ({ data }), so the mocked unit tests and the real client are interchangeable.
 
-const API = process.env.GITHUB_API_URL || "https://api.github.com";
+/** The GitHub REST base URL. Read lazily (per call) so it honors GITHUB_API_URL for GHES/tests. */
+function apiBase() {
+  return process.env.GITHUB_API_URL || "https://api.github.com";
+}
 
 /**
  * @param {string} token  a GitHub token (GITHUB_TOKEN) with the needed scopes
@@ -12,7 +15,7 @@ const API = process.env.GITHUB_API_URL || "https://api.github.com";
  */
 export function makeRest(token) {
   async function call(method, path, body) {
-    const res = await fetch(`${API}${path}`, {
+    const res = await fetch(`${apiBase()}${path}`, {
       method,
       headers: {
         accept: "application/vnd.github+json",
