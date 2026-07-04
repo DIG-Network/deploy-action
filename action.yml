@@ -172,21 +172,31 @@ outputs:
   environment:
     description: "The resolved deploy environment: `preview` or `production` (from the event mode)."
     value: ${{ steps.mode.outputs.environment }}
+  teardown:
+    description: >-
+      `true` when this run tore down a closed PR's preview (deactivated its GitHub Deployment(s) and
+      updated the PR comment) instead of building — a closed `pull_request` event. `false` otherwise.
+    value: ${{ steps.mode.outputs.teardown }}
 
 runs:
   using: "composite"
   steps:
-    # Decide PR-preview vs push-deploy from the triggering event (pure JS, tested).
-    # On pull_request → a free preview; on push/dispatch to the default branch → a
-    # real deploy; anything else → preview (never a surprise spend off a branch).
-    - name: Decide deploy mode (preview vs deploy)
+    # Decide PR-preview vs push-deploy vs PR-close-teardown from the triggering
+    # event (pure JS, tested). On pull_request → a free preview (or, when the PR
+    # just CLOSED, a teardown — no build); on push/dispatch to the default
+    # branch → a real deploy; anything else → preview (never a surprise spend
+    # off a branch).
+    - name: Decide deploy mode (preview vs deploy vs teardown)
       id: mode
       shell: bash
       # Pass the event via DIG_* (a step `env:` cannot override the reserved
       # GITHUB_EVENT_NAME / GITHUB_REF the runner sets); mode.mjs prefers DIG_*.
+      # DIG_EVENT_ACTION carries `github.event.action` (e.g. "opened"/"closed") —
+      # GitHub does not expose it as a reserved GITHUB_* var itself.
       env:
         ACTION_PATH: ${{ github.action_path }}
         DIG_EVENT_NAME: ${{ github.event_name }}
+        DIG_EVENT_ACTION: ${{ github.event.action }}
         DIG_REF: ${{ github.ref }}
         DIG_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         DIG_FORCE_PREVIEW: ${{ inputs.preview }}
@@ -205,7 +215,10 @@ runs:
         echo "::error::no funding credential for a real deploy: set 'passphrase' (the deploy wallet's DIGSTORE_PASSPHRASE) as a repo secret. PR previews are free and need none."
         exit 1
 
+    # A PR-close teardown never builds — skip the install (and every step below,
+    # down to the deploy) entirely so closing a PR costs nothing and installs nothing.
     - name: Install digstore CLI (pinned)
+      if: steps.mode.outputs.teardown != 'true'
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
@@ -246,6 +259,7 @@ runs:
 
     - name: Deploy to DIG
       id: deploy
+      if: steps.mode.outputs.teardown != 'true'
       shell: bash
       # All inputs are passed through `env:` and read as $VARS in the script
       # (never interpolated as `${{ }}` into the run body), so an input value can
@@ -296,10 +310,11 @@ runs:
 
     - name: Report (outputs + PR comment + deployment status)
       id: report
-      # ALWAYS run so a catalogued `outcome` + `failure-reason` is written even on the failure path
-      # (a guard/auth/deploy step aborting before any JSON). report.mjs handles an empty input by
-      # emitting the failure outcome from the DIG_PRIOR_* hints below.
-      if: always()
+      # ALWAYS run (for a build/deploy run) so a catalogued `outcome` + `failure-reason` is written
+      # even on the failure path (a guard/auth/deploy step aborting before any JSON). report.mjs
+      # handles an empty input by emitting the failure outcome from the DIG_PRIOR_* hints below.
+      # Skipped on a PR-close teardown — there is no deploy JSON to report on (see the teardown step).
+      if: always() && steps.mode.outputs.teardown != 'true'
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
@@ -329,3 +344,19 @@ runs:
             || 'the deploy failed before producing a result' }}
       run: |
         node "$ACTION_PATH/src/report.mjs" "$DEPLOY_JSON_FILE"
+
+    # PR-close teardown (roadmap #18): the PR just closed, so its preview no longer
+    # represents anything live. Deactivate every GitHub Deployment this action created
+    # for that PR (src/github.mjs deactivateDeployments, matched via the deployment
+    # payload across ALL of the PR's pushes — not just the last one) and replace the
+    # PR's deploy comment with a closed notice. Never runs digstore; never spends;
+    # always best-effort (a closing PR must never be blocked by cleanup cosmetics).
+    - name: Tear down PR preview (mark deployment(s) inactive)
+      if: always() && steps.mode.outputs.teardown == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        DIG_COMMENT_ON_PR: ${{ inputs.comment-on-pr }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        node "$ACTION_PATH/src/teardown.mjs"

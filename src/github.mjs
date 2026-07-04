@@ -5,6 +5,8 @@
 //   - reportDeployment: create a GitHub Deployment + Deployment Status AND a
 //     commit status (#24 — a red X on a failed/timed-out anchor so it can gate
 //     merge), pointing at the live hub URL when there is one.
+//   - deactivateDeployments: on a PR close (roadmap #18 teardown), mark that
+//     PR's preview deployment(s) `inactive` — see src/teardown.mjs.
 //
 // The `rest` argument is an Octokit-shaped client (github.getOctokit(token).rest
 // in the action entrypoint); only the handful of methods used here are required,
@@ -66,10 +68,14 @@ export async function upsertComment(rest, { owner, repo, issue_number, body }) {
  * @param {string} args.environment  e.g. "production" or "preview"
  * @param {import("./parse.mjs").parseDeployJson extends (s: string) => infer R ? R : any} args.result
  * @param {string} [args.context]  commit-status context label
+ * @param {number} [args.prNumber]  when set, stamped into the deployment's `payload` as `{ pr }` so
+ *   {@link deactivateDeployments} can find every deployment a PR produced across ALL of its pushes
+ *   on PR close — the PR's head sha (`ref`) changes on every push, so a `ref` filter alone would
+ *   miss every commit but the last.
  */
 export async function reportDeployment(
   rest,
-  { owner, repo, sha, environment, result, context = "DIG deploy" },
+  { owner, repo, sha, environment, result, context = "DIG deploy", prNumber },
 ) {
   const state = statusState(result);
   const envUrl = result.hubUrl || undefined;
@@ -93,6 +99,7 @@ export async function reportDeployment(
       required_contexts: [],
       transient_environment: environment !== "production",
       description: description.slice(0, 140),
+      ...(prNumber != null ? { payload: { pr: prNumber } } : {}),
     });
     deploymentId = deployment?.id;
   } catch {
@@ -131,4 +138,65 @@ export async function reportDeployment(
   }
 
   return { state, deploymentId };
+}
+
+/** Parse a deployment's `payload`, which GitHub may return as an object or a JSON string. */
+function parsePayload(payload) {
+  if (payload && typeof payload === "object") return payload;
+  if (typeof payload === "string") {
+    try {
+      return JSON.parse(payload);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Mark every GitHub Deployment for `environment` whose `payload.pr` matches `prNumber` as
+ * `inactive` (roadmap #18 teardown: on a PR close, its preview no longer represents anything
+ * live). Deployments are matched by `payload.pr` — stamped by {@link reportDeployment} — rather
+ * than `ref`, because a PR's head sha changes on every push; a single-`ref` filter would only ever
+ * catch the LAST commit's deployment and leave earlier ones active.
+ *
+ * Best-effort throughout: listing failure returns 0 (nothing to report yet); one deployment's
+ * status update failing does not stop the rest from being deactivated.
+ *
+ * @param {object} rest  Octokit `.rest` client
+ * @param {object} args
+ * @param {string} args.owner
+ * @param {string} args.repo
+ * @param {string} args.environment  e.g. "preview"
+ * @param {number} args.prNumber
+ * @returns {Promise<number>} how many deployments were deactivated
+ */
+export async function deactivateDeployments(rest, { owner, repo, environment, prNumber }) {
+  let deployments;
+  try {
+    const { data } = await rest.repos.listDeployments({ owner, repo, environment });
+    deployments = Array.isArray(data) ? data : [];
+  } catch {
+    return 0; // no deployments to report on yet, or the API call itself failed — nothing to do.
+  }
+
+  let deactivated = 0;
+  for (const deployment of deployments) {
+    const payload = parsePayload(deployment.payload);
+    if (!payload || payload.pr !== prNumber) continue;
+    try {
+      await rest.repos.createDeploymentStatus({
+        owner,
+        repo,
+        deployment_id: deployment.id,
+        state: "inactive",
+        environment,
+        description: "Preview closed — the pull request was closed.",
+      });
+      deactivated += 1;
+    } catch {
+      // best-effort — keep deactivating the rest even if one call fails.
+    }
+  }
+  return deactivated;
 }

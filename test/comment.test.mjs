@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildCommentBody, COMMENT_MARKER } from "../src/comment.mjs";
+import { buildCommentBody, buildTeardownCommentBody, COMMENT_MARKER } from "../src/comment.mjs";
 import { parseDeployJson } from "../src/parse.mjs";
 
 const STORE = "a".repeat(64);
@@ -100,4 +100,38 @@ test("a failed hub push surfaces the error in the comment", () => {
   );
   const body = buildCommentBody({ result: r, sha: "abc" });
   assert.match(body, /remote rejected/);
+});
+
+// ---------------------------------------------------------------------------
+// buildTeardownCommentBody: the PR comment posted when a PR closes and its
+// preview deployment(s) are marked inactive (roadmap #18 teardown).
+// ---------------------------------------------------------------------------
+
+test("the teardown comment carries the same hidden marker for upsert", () => {
+  const body = buildTeardownCommentBody({ deactivated: 1 });
+  assert.match(body, new RegExp(COMMENT_MARKER));
+});
+
+test("the teardown comment states how many preview deployments were deactivated", () => {
+  const body = buildTeardownCommentBody({ deactivated: 2 });
+  assert.match(body, /closed/i);
+  assert.match(body, /2 preview deployments/i);
+  assert.match(body, /nothing was spent/i);
+});
+
+test("the teardown comment uses singular phrasing for exactly one deployment", () => {
+  const body = buildTeardownCommentBody({ deactivated: 1 });
+  assert.match(body, /1 preview deployment\b/i);
+  assert.doesNotMatch(body, /1 preview deployments/i);
+});
+
+test("the teardown comment handles zero deactivated deployments gracefully", () => {
+  const body = buildTeardownCommentBody({ deactivated: 0 });
+  assert.match(body, /closed/i);
+  assert.doesNotMatch(body, /undefined/);
+});
+
+test("buildTeardownCommentBody defaults deactivated to 0 when omitted", () => {
+  const body = buildTeardownCommentBody();
+  assert.match(body, new RegExp(COMMENT_MARKER));
 });

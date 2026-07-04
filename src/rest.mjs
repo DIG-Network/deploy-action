@@ -53,6 +53,12 @@ export function makeRest(token) {
           call("PATCH", `/repos/${owner}/${repo}/issues/comments/${comment_id}`, { body }),
       },
       repos: {
+        listDeployments: ({ owner, repo, environment }) => {
+          const qs = new URLSearchParams();
+          if (environment) qs.set("environment", environment);
+          qs.set("per_page", "100");
+          return call("GET", `/repos/${owner}/${repo}/deployments?${qs.toString()}`);
+        },
         createDeployment: ({ owner, repo, ...rest }) =>
           call("POST", `/repos/${owner}/${repo}/deployments`, rest),
         createDeploymentStatus: ({ owner, repo, deployment_id, ...rest }) =>
