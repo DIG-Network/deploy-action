@@ -148,6 +148,10 @@ async function main() {
         sha,
         environment: preview ? "preview" : "production",
         result,
+        // Stamped into the deployment's payload so a later PR-close teardown
+        // (src/teardown.mjs) can find every deployment this PR produced across
+        // ALL of its pushes, not just the one matching the final sha.
+        prNumber: preview ? pr : undefined,
       });
     } catch (err) {
       console.error(`::warning::deploy succeeded but PR reporting failed: ${err.message}`);

@@ -31,7 +31,7 @@ const emitted = new Set(Object.keys(toOutputs({})));
 
 // Outputs that are declared in action.yml but sourced from the MODE step (src/mode.mjs), not from
 // parse.mjs's toOutputs(). They are legitimately declared without being emitted by toOutputs().
-const MODE_SOURCED = new Set(["environment"]);
+const MODE_SOURCED = new Set(["environment", "teardown"]);
 
 const missingInYml = [...emitted].filter((k) => !declared.has(k));
 const missingInImpl = [...declared].filter((k) => !emitted.has(k) && !MODE_SOURCED.has(k));

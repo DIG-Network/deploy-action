@@ -155,6 +155,24 @@ test("createDeploymentStatus POSTs under the deployment id", async () => {
   assert.equal(sent.deployment_id, undefined, "deployment_id is a path param");
 });
 
+test("listDeployments GETs filtered by environment", async () => {
+  const { rest } = await freshRest("tok");
+  echo.reply(200, [{ id: 1, ref: "abc", payload: { pr: 7 } }]);
+  const out = await rest.repos.listDeployments({ owner: "o", repo: "r", environment: "preview" });
+  assert.deepEqual(out.data, [{ id: 1, ref: "abc", payload: { pr: 7 } }]);
+  const req = echo.requests.at(-1);
+  assert.equal(req.method, "GET");
+  assert.equal(req.url, "/repos/o/r/deployments?environment=preview&per_page=100");
+});
+
+test("listDeployments omits the environment filter when none is given", async () => {
+  const { rest } = await freshRest("tok");
+  echo.reply(200, []);
+  await rest.repos.listDeployments({ owner: "o", repo: "r" });
+  const req = echo.requests.at(-1);
+  assert.equal(req.url, "/repos/o/r/deployments?per_page=100");
+});
+
 test("createCommitStatus POSTs under the sha", async () => {
   const { rest } = await freshRest("tok");
   echo.reply(201, { id: 1 });

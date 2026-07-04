@@ -19,10 +19,15 @@ It does the right thing for the event automatically:
 
 - **On a pull request → a free preview.** Runs `digstore deploy --preview` — your build is compiled
   and verified through the real `chia://` read path, producing a shareable, content-addressed preview.
-  **No chain, no wallet, no spend.** The preview address is commented on the PR.
+  **No chain, no wallet, no spend.** The preview address is commented on the PR, and a GitHub
+  Deployment (`environment: preview`) is created so the preview shows up in the PR's checks/timeline.
 - **On a push to your default branch → a real deploy.** Runs `digstore deploy --if-changed` — it
   advances the store's on-chain root and publishes the new capsule to DIGHUb, then sets a GitHub
   deployment status and comments the live URL.
+- **On a PR close → the preview is torn down.** No build runs; every GitHub Deployment this action
+  created for that PR (across all of its pushes) is marked `inactive`, and the PR comment is replaced
+  with a closed notice. Requires `pull_request: types:` to include `closed` in your trigger (GitHub's
+  default types omit it — see [Usage](#usage)).
 
 Under the hood, on a real deploy it:
 
@@ -55,6 +60,7 @@ on:
   push:
     branches: [main]      # real deploy
   pull_request:           # free preview
+    types: [opened, synchronize, reopened, closed]   # `closed` tears the preview down
 
 permissions:
   contents: read
@@ -94,6 +100,11 @@ jobs:
   byte-identical to the live version is a **no-op** (no spend, nothing published), so it is safe to
   run on every push.
 - A push to a **non-default** branch previews (never a surprise spend).
+- **A closed PR tears its preview down** — no build, no `digstore` install: every GitHub Deployment
+  the action created for that PR is marked `inactive` and the PR comment is replaced with a closed
+  notice. This only fires when your `pull_request:` trigger's `types:` includes `closed` — GitHub's
+  default types (`opened`, `synchronize`, `reopened`) omit it, so add it explicitly as shown above.
+  Teardown never runs `digstore` and never touches the chain — it is pure GitHub API cleanup.
 - The explicit `preview: true` input **fails closed**: until free no-spend previews (#18) ship,
   `--preview` would still publish a real (paid) capsule, so a flag named "preview" must not silently
   spend. Set `allow-paid-preview: true` to deliberately publish a paid build from `preview: true`.
@@ -220,6 +231,7 @@ All credentials should be passed from **repo secrets**, never inline.
 | `outcome` | The catalogued result (see [Outcome enum](#outcome-enum)). Branch on this instead of scraping logs. Written even on the failure path. |
 | `failure-reason` | A reason string when `outcome` is a failure; empty otherwise. |
 | `environment` | The resolved environment: `preview` or `production` (from the event mode). |
+| `teardown` | `true` when this run tore a closed PR's preview down (deactivated its deployment(s), no build) instead of deploying. |
 
 > Note: `*.on.dig.net` is an **optional, user-chosen** human domain you register for a store; it is
 > not derivable from a deploy, so the action surfaces the always-available `hub-url` and `chia://`
@@ -272,13 +284,18 @@ store locally from the deploy key + the current on-chain root, stages your outpu
 the root (signed by the **writer** deploy-key, `--writer-key`), and pushes the new capsule — all
 non-interactively. The composite steps, in order:
 
-1. **Decide mode** (`src/mode.mjs`) — PR → preview, default-branch push → deploy.
+1. **Decide mode** (`src/mode.mjs`) — PR → preview, default-branch push → deploy, closed PR → teardown.
 2. **Keyless auth** (`src/auth.mjs` → `src/oidc.mjs`) on a real deploy — request the GitHub OIDC token
    (`audience=dighub`), `POST /auth/ci/github-oidc`, and write the scoped session to a temp identity
    dir digstore reads. No token is ever printed.
 3. **Run `digstore`** — `deploy --preview` (PR) or `deploy --if-changed --writer-key …` (push).
+   Skipped entirely on a teardown run (a closed PR has nothing to build).
 4. **Report** (`src/report.mjs` → `parse.mjs`/`comment.mjs`/`github.mjs`) — outputs, PR comment, and
-   the GitHub deployment + commit status.
+   the GitHub deployment + commit status. Skipped on a teardown run (step 5 handles it instead).
+5. **Tear down** (`src/teardown.mjs`, closed PRs only) — deactivates every GitHub Deployment this
+   action created for the PR (`src/github.mjs` `deactivateDeployments`, matched via the deployment
+   payload across all of the PR's pushes) and replaces the PR comment with a closed notice.
+   Best-effort: never fails the workflow.
 
 You can run the deploy half yourself:
 

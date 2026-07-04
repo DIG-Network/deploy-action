@@ -21,13 +21,18 @@ commit status).
   `fetch`. A reimplementation MUST NOT introduce a runtime dependency that requires `npm install`
   or vendoring inside the Action.
 - The composite steps run, in order:
-  1. **Decide mode** (`src/mode.mjs`) — preview vs production; fails closed on a paid forced preview.
+  1. **Decide mode** (`src/mode.mjs`) — preview vs production vs teardown; fails closed on a paid
+     forced preview.
   2. **Funding-credential guard** — a real deploy with no `passphrase` aborts.
-  3. **Install digstore** (`scripts/install-digstore.sh`) — pinned CLI resolution.
+  3. **Install digstore** (`scripts/install-digstore.sh`) — pinned CLI resolution. Skipped on a
+     teardown run (§4).
   4. **Keyless auth** (`src/auth.mjs` → `src/oidc.mjs`) — GitHub OIDC → hub session (real deploy only).
   5. **Import wallet** — `digstore seed import` when a `mnemonic` is provided (real deploy only).
-  6. **Deploy** — `digstore deploy … --json`, tee'd to a temp file.
-  7. **Report** (`src/report.mjs`) — runs with `if: always()`; outputs + summary + PR reporting.
+  6. **Deploy** — `digstore deploy … --json`, tee'd to a temp file. Skipped on a teardown run.
+  7. **Report** (`src/report.mjs`) — runs with `if: always()` UNLESS this is a teardown run; outputs +
+     summary + PR reporting.
+  8. **Teardown** (`src/teardown.mjs`) — runs ONLY on a teardown run (§4, §7.4): deactivates the
+     closed PR's preview deployment(s) and replaces its comment with a closed notice.
 
 ---
 
@@ -108,15 +113,30 @@ the log or to `$GITHUB_OUTPUT`. Only the (non-secret) `store-id` is emitted.
 
 ## 4. Deploy mode decision (`src/event.mjs`, `src/mode.mjs`)
 
-`decideMode({ eventName, ref, defaultBranch, forcePreview })` returns
-`{ preview: boolean, environment: "preview"|"production", forced: boolean }`:
+`decideMode({ eventName, eventAction, ref, defaultBranch, forcePreview })` returns
+`{ preview: boolean, environment: "preview"|"production", forced: boolean, teardown: boolean }`:
 
-- `forcePreview` (the `preview: true` input) → `{ preview: true, environment: "preview", forced: true }`.
-- `eventName` in `{ pull_request, pull_request_target }` → preview, `forced: false`.
+- `forcePreview` (the `preview: true` input) →
+  `{ preview: true, environment: "preview", forced: true, teardown: false }`.
+- `eventName` in `{ pull_request, pull_request_target }` AND `eventAction === "closed"` →
+  `{ preview: true, environment: "preview", forced: false, teardown: true }` — a closed pull request
+  has nothing left to preview; the composite action skips install/deploy entirely (§1 steps 3, 6) and
+  instead runs the teardown step (§1 step 8, §7.4) to deactivate that PR's preview deployment(s).
+- `eventName` in `{ pull_request, pull_request_target }` (any OTHER `eventAction`) → preview,
+  `forced: false`, `teardown: false`.
 - `eventName` in `{ push, workflow_dispatch }` AND `ref === "refs/heads/{defaultBranch}"` →
-  `{ preview: false, environment: "production", forced: false }`.
-- Everything else → preview, `forced: false` (a non-default-branch push never triggers a surprise
-  spend).
+  `{ preview: false, environment: "production", forced: false, teardown: false }`.
+- Everything else → preview, `forced: false`, `teardown: false` (a non-default-branch push never
+  triggers a surprise spend).
+
+`eventAction` is `github.event.action` (e.g. `"opened"`, `"synchronize"`, `"closed"`) — GitHub does
+NOT expose this as a reserved `GITHUB_*` environment variable, so the action passes it explicitly via
+`DIG_EVENT_ACTION` (§ below). It is meaningful only for `pull_request`/`pull_request_target` events;
+a reimplementation MUST ignore it for every other event.
+
+**Caller requirement:** teardown fires only when the consumer's `pull_request:` trigger's `types:`
+includes `closed` — GitHub's default types (`opened`, `synchronize`, `reopened`) omit it. This is a
+caller-side workflow concern the Action cannot enforce; document it (README §Usage).
 
 **Fail-closed paid-preview guard** (`previewSpendGuard({ forcePreview, allowPaidPreview })`): because
 free no-spend previews (#18) are not yet available, an EXPLICIT `preview: true` input would still
@@ -128,9 +148,9 @@ publish a real (paid) capsule. Therefore:
 - An **event-derived** preview (a PR, or a non-default push) MUST NEVER be blocked.
 
 `mode.mjs` reads the event from `DIG_EVENT_NAME` / `DIG_REF` / `DIG_DEFAULT_BRANCH` (the reserved
-`GITHUB_*` vars cannot be overridden by a step `env:`), `DIG_FORCE_PREVIEW`, and
+`GITHUB_*` vars cannot be overridden by a step `env:`), `DIG_EVENT_ACTION`, `DIG_FORCE_PREVIEW`, and
 `DIG_ALLOW_PAID_PREVIEW` (each truthy on `/^(1|true|yes)$/i`). It writes `key=value` lines to
-`$GITHUB_OUTPUT`: `preview`, `environment`, `forced-preview`, `paid-preview-blocked`.
+`$GITHUB_OUTPUT`: `preview`, `environment`, `forced-preview`, `teardown`, `paid-preview-blocked`.
 
 **Funding-credential guard:** a non-preview deploy with an empty `passphrase` MUST abort with a clear
 error before installing/deploying (previews are free and need no credential).
@@ -245,13 +265,17 @@ skipped, spent, pushed, preview, json, outcome, failure-reason
   JSON blob, so a consumer can `JSON.parse` once instead of re-stitching scalars. Adding a new field
   to the result MUST NOT require declaring a new scalar output — it appears inside `json`.
 - `outcome` and `failure-reason` are the catalogued §6.2 values.
-- `environment` (`preview`|`production`) is emitted by the mode step, not `toOutputs`.
+- `environment` (`preview`|`production`) and `teardown` (`true`|`false`) are emitted by the mode step
+  (§4), not `toOutputs` — they are declared in `action.yml` but excluded from the
+  `check-action.mjs` `toOutputs()`-parity check as `MODE_SOURCED`.
 
 ---
 
 ## 7. Reporting (`src/report.mjs`, `src/comment.mjs`, `src/github.mjs`, `src/rest.mjs`)
 
-The report step runs with `if: always()` so a catalogued outcome is written even on the failure path.
+The report step runs with `if: always()`, UNLESS the mode decision (§4) is a teardown — a teardown
+run has no deploy JSON to report on and is handled entirely by §7.4 instead. Otherwise the report
+step always runs, so a catalogued outcome is written even on the failure path.
 
 - **No deploy JSON** (a pre-deploy guard/auth/deploy failure aborted before any result): report emits
   the failure outcome + reason from the `DIG_PRIOR_OUTCOME` / `DIG_PRIOR_REASON` hints (an
@@ -286,24 +310,55 @@ so it is fully unit-testable. Invariants:
   `pushed === false && spent`; otherwise `success`.
 - `upsertComment(rest, {owner, repo, issue_number, body})`: lists issue comments, and if one contains
   `COMMENT_MARKER`, PATCHes it; otherwise POSTs a new one. Idempotent per PR.
-- `reportDeployment(rest, {owner, repo, sha, environment, result, context})`: creates a GitHub
-  Deployment (`transient_environment: true` for non-production so previews auto-inactivate), a
+- `reportDeployment(rest, {owner, repo, sha, environment, result, context, prNumber})`: creates a
+  GitHub Deployment (`transient_environment: true` for non-production so previews auto-inactivate), a
   Deployment Status, and a commit Status on the sha (the merge-gating signal). Each call is
   independent and best-effort: one failing (e.g. missing `deployments: write`) MUST NOT abort the
   others. Descriptions are truncated to 140 chars; `environment_url`/`target_url` = the hub URL when
-  present.
+  present. When `prNumber` is given, the deployment's `payload` is stamped `{ pr: prNumber }` — the
+  mechanism §7.4's teardown uses to find every deployment a PR produced across ALL of its pushes (a
+  PR's head sha, and therefore `ref`, changes on every push; `payload.pr` does not).
+- `deactivateDeployments(rest, {owner, repo, environment, prNumber})`: lists every Deployment for
+  `environment` (`repos.listDeployments`), and for each whose `payload.pr === prNumber` (parsing
+  `payload` whether GitHub returns it as an object or a JSON string), creates a Deployment Status with
+  `state: "inactive"`. Best-effort: a listing failure returns `0`; one deployment's status update
+  failing does not stop the rest. Returns the count deactivated.
 
 ### 7.3 REST client (`src/rest.mjs`)
 
 `makeRest(token)` returns an object whose `.rest` matches the Octokit subset the Action calls
-(`issues.listComments|createComment|updateComment`, `repos.createDeployment|createDeploymentStatus|
-createCommitStatus`), each returning `{ data }`. It uses `fetch` against `GITHUB_API_URL`
-(default `https://api.github.com`) with headers `accept: application/vnd.github+json`,
+(`issues.listComments|createComment|updateComment`, `repos.listDeployments|createDeployment|
+createDeploymentStatus|createCommitStatus`), each returning `{ data }`. It uses `fetch` against
+`GITHUB_API_URL` (default `https://api.github.com`) with headers `accept: application/vnd.github+json`,
 `authorization: Bearer <token>`, `x-github-api-version: 2022-11-28`, `content-type: application/json`,
 `user-agent: dig-network-deploy-action`. A non-2xx response MUST throw an `Error` whose `.status` is
 the HTTP status and whose message carries the GitHub `{message}` when present (else `status
 statusText`). An empty body yields `data: undefined`. The shape is interchangeable with a mocked
-Octokit `.rest`, so the same code path serves tests and production.
+Octokit `.rest`, so the same code path serves tests and production. `repos.listDeployments({owner,
+repo, environment})` issues `GET /repos/{owner}/{repo}/deployments?[environment=<env>&]per_page=100`.
+
+### 7.4 Teardown (`src/teardown.mjs`)
+
+Runs ONLY when the mode decision (§4) is a teardown (a closed `pull_request`/`pull_request_target`).
+It never invokes `digstore` and never touches the chain — it is pure GitHub API cleanup, and it is
+ALWAYS best-effort: any failure MUST be logged as a `::warning::` and MUST NOT set a nonzero exit
+code, because a PR that is already closing must never be blocked by a cleanup step.
+
+1. Resolve the PR number from `GITHUB_EVENT_PATH` (`event.pull_request.number ?? event.number`). If
+   there is no `GITHUB_TOKEN`, no resolvable `GITHUB_REPOSITORY`, or no PR number, it logs and exits 0
+   without calling the GitHub API.
+2. Calls `deactivateDeployments(rest, {owner, repo, environment: "preview", prNumber})` (§7.2).
+3. When `DIG_COMMENT_ON_PR` is truthy (default `true`, mirroring `comment-on-pr`), upserts the PR's
+   deploy comment (§7.1's `COMMENT_MARKER`) with `buildTeardownCommentBody({ deactivated })` (§7.1a) —
+   REPLACING the prior preview comment in place, so the PR still carries exactly one DIG comment.
+4. Writes a `GITHUB_STEP_SUMMARY` block reporting how many deployments were deactivated.
+
+### 7.1a Teardown comment body (`src/comment.mjs` `buildTeardownCommentBody`)
+
+`buildTeardownCommentBody({ deactivated })` returns GitHub-flavored Markdown, pure (no I/O), ending
+with the same `COMMENT_MARKER` as `buildCommentBody` (§7.1) so `upsertComment` finds and replaces the
+PR's existing DIG comment rather than adding a second one. States how many preview deployments (if
+any) were marked inactive and that nothing was spent.
 
 ---
 
@@ -341,7 +396,11 @@ SHA for reproducibility. The first `@v1` is human-gated; pin to a commit SHA unt
   keyless path (OIDC request → exchange → session write → `store-id` emit) against a LOCAL echo
   server — no real GitHub OIDC, no real hub, no secrets.
 - `action.yml`'s declared `outputs:` keys MUST exactly match the keys `toOutputs()` emits (plus the
-  mode-sourced `environment`); a drift fails CI.
+  mode-sourced `environment` and `teardown`); a drift fails CI.
+- `test/teardown.test.mjs` exercises `src/teardown.mjs` as a subprocess against a LOCAL echo GitHub
+  API (the same technique as `test/report.test.mjs`), covering: no-PR-context (no-op), deactivating
+  only the matching PR's deployments, the `comment-on-pr: false` skip, and best-effort behavior on a
+  GitHub API error (MUST still exit 0).
 - The `chia://` open URL, the `urn:dig:chia:<store>:<root>` grammar, and the `$DIG` per-capsule
   pricing sigil are shared ecosystem contracts and MUST agree with digstore, hub.dig.net, and the
   docs.dig.net protocol pages.

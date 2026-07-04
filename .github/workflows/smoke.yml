@@ -36,7 +36,7 @@ jobs:
                 throw new Error("action.yml missing input: " + key);
               }
             }
-            for (const out of ["content-address", "preview"]) {
+            for (const out of ["content-address", "preview", "teardown"]) {
               if (!s.includes(out + ":")) throw new Error("action.yml missing output: " + out);
             }
             console.log("action.yml inputs/outputs present");
@@ -66,6 +66,18 @@ jobs:
           node src/mode.mjs
           grep -qx 'preview=false' "$GITHUB_OUTPUT"
           grep -qx 'environment=production' "$GITHUB_OUTPUT"
+
+      - name: mode.mjs — a closed pull_request decides teardown (no build)
+        env:
+          DIG_EVENT_NAME: pull_request
+          DIG_EVENT_ACTION: closed
+          DIG_REF: refs/heads/feature
+          DIG_DEFAULT_BRANCH: main
+          GITHUB_OUTPUT: ${{ runner.temp }}/mode-pr-closed.out
+        run: |
+          node src/mode.mjs
+          grep -qx 'teardown=true' "$GITHUB_OUTPUT"
+          grep -qx 'environment=preview' "$GITHUB_OUTPUT"
 
       - name: auth.mjs — full keyless exchange against a local echo hub
         env:

@@ -84,3 +84,60 @@ test("decideMode reports whether the preview was FORCED by the input", () => {
   assert.equal(auto.preview, true);
   assert.equal(auto.forced, false, "an event-derived preview is not forced");
 });
+
+// ---------------------------------------------------------------------------
+// Teardown: a closed pull_request has nothing left to preview. decideMode must
+// flag `teardown: true` so the composite action skips the build/deploy steps
+// entirely and instead marks that PR's preview deployment(s) inactive.
+// ---------------------------------------------------------------------------
+
+test("a closed pull_request → teardown (no build, mark preview deployments inactive)", () => {
+  const m = decideMode({
+    eventName: "pull_request",
+    eventAction: "closed",
+    ref: "refs/heads/feature",
+    defaultBranch: "main",
+  });
+  assert.equal(m.teardown, true);
+  assert.equal(m.preview, true, "still reported as the preview environment");
+  assert.equal(m.environment, "preview");
+});
+
+test("a closed pull_request_target → teardown too", () => {
+  const m = decideMode({
+    eventName: "pull_request_target",
+    eventAction: "closed",
+    ref: "refs/heads/feature",
+    defaultBranch: "main",
+  });
+  assert.equal(m.teardown, true);
+});
+
+for (const action of ["opened", "synchronize", "reopened", "labeled", undefined]) {
+  test(`a pull_request '${action}' is NOT teardown (still builds a preview)`, () => {
+    const m = decideMode({
+      eventName: "pull_request",
+      eventAction: action,
+      ref: "refs/heads/feature",
+      defaultBranch: "main",
+    });
+    assert.equal(m.teardown, false);
+    assert.equal(m.preview, true);
+  });
+}
+
+test("teardown is false on every non-pull_request-closed decision", () => {
+  assert.equal(
+    decideMode({ eventName: "push", ref: "refs/heads/main", defaultBranch: "main" }).teardown,
+    false,
+  );
+  assert.equal(
+    decideMode({ eventName: "push", ref: "refs/heads/dev", defaultBranch: "main" }).teardown,
+    false,
+  );
+  assert.equal(
+    decideMode({ eventName: "push", ref: "refs/heads/main", defaultBranch: "main", forcePreview: true })
+      .teardown,
+    false,
+  );
+});

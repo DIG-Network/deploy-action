@@ -130,3 +130,27 @@ export function buildCommentBody({ result, sha, preview = false }) {
 
   return lines.join("\n");
 }
+
+/**
+ * Build the Markdown body posted when a PR closes and its preview deployment(s) are torn down
+ * (roadmap #18). Pure (no I/O). Carries the same {@link COMMENT_MARKER} as {@link buildCommentBody}
+ * so `upsertComment` replaces the PR's existing deploy comment in place — a PR still accrues exactly
+ * one DIG comment, now updated to reflect that the preview is gone.
+ *
+ * @param {{ deactivated?: number }} [args]
+ * @returns {string} GitHub-flavored Markdown
+ */
+export function buildTeardownCommentBody({ deactivated = 0 } = {}) {
+  const lines = [];
+  lines.push("### DIG Preview — closed");
+  lines.push("");
+  lines.push(
+    deactivated > 0
+      ? `This pull request closed. ${deactivated} preview deployment${deactivated === 1 ? "" : "s"} ` +
+        `${deactivated === 1 ? "was" : "were"} marked inactive — nothing was spent.`
+      : "This pull request closed. No preview deployment needed to be marked inactive.",
+  );
+  lines.push("");
+  lines.push(COMMENT_MARKER);
+  return lines.join("\n");
+}
