@@ -376,7 +376,7 @@ on-chain at any of the canonical venues:
 
 ## Help
 
-- [DIG Network Discord](https://discord.gg/dignetwork) — community + support.
+- [DIG Network Discord](https://discord.gg/v78aygUZt) — community + support.
 - [Get help](https://docs.dig.net/docs/support/get-help) — docs troubleshooting, FAQ, and error codes.
 
 ## License
