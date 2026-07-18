@@ -23,13 +23,7 @@ import {
   exchangeOidc,
   buildSessionJson,
 } from "./oidc.mjs";
-
-function emitOutput(key, value) {
-  const file = process.env.GITHUB_OUTPUT;
-  if (!file) return;
-  const delim = `__dig_eof_${Math.random().toString(36).slice(2)}__`;
-  writeFileSync(file, `${key}<<${delim}\n${value}\n${delim}\n`, { flag: "a" });
-}
+import { emitOutput } from "./actions-io.mjs";
 
 async function main() {
   const apiBase = (process.env.DIG_API_BASE || "https://hub.dig.net/v1").trim();

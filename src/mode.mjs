@@ -19,17 +19,17 @@
 // spend silently: a forced preview aborts here unless `allow-paid-preview: true`
 // is set. The auto event-based preview (a PR / non-default push) is NOT guarded.
 
-import { writeFileSync } from "node:fs";
-
 import { decideMode, previewSpendGuard } from "./event.mjs";
+import { emitOutput as writeOutput } from "./actions-io.mjs";
 
+// Echo the decision to the log when run outside Actions (no $GITHUB_OUTPUT to
+// write to, e.g. local debugging) instead of silently discarding it.
 function emitOutput(key, value) {
-  const file = process.env.GITHUB_OUTPUT;
-  if (!file) {
+  if (!process.env.GITHUB_OUTPUT) {
     console.log(`${key}=${value}`);
     return;
   }
-  writeFileSync(file, `${key}=${value}\n`, { flag: "a" });
+  writeOutput(key, value);
 }
 
 const forcePreview = /^(1|true|yes)$/i.test((process.env.DIG_FORCE_PREVIEW || "").trim());
