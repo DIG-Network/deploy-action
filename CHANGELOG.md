@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org) and
 [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.2.2] - 2026-07-18
+
+### Chores
+- **deploy-action:** Arch-audit #351 — extract arg-assembly + DRY io helpers + scheme fixture (#3)
+
 ## [0.2.1] - 2026-07-12
 
 ### Bug Fixes
