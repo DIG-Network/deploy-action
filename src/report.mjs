@@ -14,12 +14,13 @@
 // The one hard failure it DOES surface is a deploy whose hub push failed or
 // timed out (exit 1), so CI goes red on a broken deploy.
 
-import { readFileSync, appendFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 
 import { parseDeployJson, toOutputs, OUTCOMES } from "./parse.mjs";
 import { buildCommentBody } from "./comment.mjs";
 import { upsertComment, reportDeployment, statusState } from "./github.mjs";
 import { makeRest } from "./rest.mjs";
+import { emitOutputs as writeOutputs, writeSummary, envBool, prNumber } from "./actions-io.mjs";
 
 function readInput(argvPath) {
   if (argvPath && argvPath !== "-") {
@@ -33,46 +34,6 @@ function readInput(argvPath) {
     return readFileSync(0, "utf8"); // fd 0 = stdin
   } catch {
     return ""; // no stdin attached — treat as no deploy output (a pre-deploy failure)
-  }
-}
-
-function envBool(name, dflt = false) {
-  const v = process.env[name];
-  if (v === undefined || v === "") return dflt;
-  return /^(1|true|yes)$/i.test(v.trim());
-}
-
-/** Append `key=value` step outputs using the multiline-safe GITHUB_OUTPUT form. */
-function writeOutputs(outputs) {
-  const file = process.env.GITHUB_OUTPUT;
-  if (!file) return; // running outside Actions (e.g. local) — nothing to write to.
-  let body = "";
-  for (const [k, v] of Object.entries(outputs)) {
-    const delim = `__dig_eof_${Math.random().toString(36).slice(2)}__`;
-    body += `${k}<<${delim}\n${v}\n${delim}\n`;
-  }
-  appendFileSync(file, body);
-}
-
-function writeSummary(md) {
-  const file = process.env.GITHUB_STEP_SUMMARY;
-  if (!file) return;
-  appendFileSync(file, `${md}\n`);
-}
-
-/** Pull the PR number from the Actions event payload, if this run is a PR. */
-function prNumber() {
-  try {
-    const path = process.env.GITHUB_EVENT_PATH;
-    if (!path) return undefined;
-    const event = JSON.parse(readFileSync(path, "utf8"));
-    return (
-      event.pull_request?.number ??
-      event.issue?.number ??
-      (event.number != null ? event.number : undefined)
-    );
-  } catch {
-    return undefined;
   }
 }
 

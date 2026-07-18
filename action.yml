@@ -281,25 +281,14 @@ runs:
         IN_MESSAGE: ${{ inputs.message }}
         IN_BUILD_COMMAND: ${{ inputs.build-command }}
         IN_WAIT_TIMEOUT: ${{ inputs.wait-timeout }}
+        ACTION_PATH: ${{ github.action_path }}
       working-directory: ${{ inputs.working-directory }}
       run: |
         set -o pipefail
-        args=( deploy --output-dir "$IN_DIRECTORY" --json )
-        if [ "$IN_PREVIEW" = "true" ]; then
-          # PR PREVIEW: a free build via the real read path — no chain, no spend,
-          # no store id / key / wallet needed.
-          args+=( --preview )
-          [ -n "$IN_BUILD_COMMAND" ] && args+=( --build-command "$IN_BUILD_COMMAND" )
-        else
-          # REAL DEPLOY to the default branch: advance the on-chain root (writer-key
-          # via DIGSTORE_WRITER_KEY) + push to DIGHub (keyless session / deploy-key).
-          [ "$IN_IF_CHANGED" = "true" ] && args+=( --if-changed )
-          [ -n "$IN_STORE_ID" ]      && args+=( --store-id "$IN_STORE_ID" )
-          [ -n "$IN_REMOTE" ]        && args+=( --remote "$IN_REMOTE" )
-          [ -n "$IN_MESSAGE" ]       && args+=( --message "$IN_MESSAGE" )
-          [ -n "$IN_BUILD_COMMAND" ] && args+=( --build-command "$IN_BUILD_COMMAND" )
-          [ -n "$IN_WAIT_TIMEOUT" ]  && args+=( --wait-timeout "$IN_WAIT_TIMEOUT" )
-        fi
+        # The preview-vs-real-deploy arg mapping is unit-tested (src/deploy-args.mjs);
+        # this just loads its NUL-separated argv into a bash array (safe against any
+        # value containing spaces/newlines, e.g. `message`).
+        mapfile -d '' -t args < <(node "$ACTION_PATH/src/print-deploy-args.mjs")
         # `--non-interactive` + `--yes` are GLOBAL digstore flags; deploy is
         # already non-interactive in --json mode, but pass them so any nested
         # confirmation auto-approves on a runner with no TTY.

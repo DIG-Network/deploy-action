@@ -53,8 +53,8 @@ jobs:
           GITHUB_OUTPUT: ${{ runner.temp }}/mode-pr.out
         run: |
           node src/mode.mjs
-          grep -qx 'preview=true' "$GITHUB_OUTPUT"
-          grep -qx 'environment=preview' "$GITHUB_OUTPUT"
+          grep -q 'preview<<' "$GITHUB_OUTPUT" && grep -A1 'preview<<' "$GITHUB_OUTPUT" | grep -qx true
+          grep -q 'environment<<' "$GITHUB_OUTPUT" && grep -A1 'environment<<' "$GITHUB_OUTPUT" | grep -qx preview
 
       - name: mode.mjs — push to default branch decides production deploy
         env:
@@ -64,8 +64,8 @@ jobs:
           GITHUB_OUTPUT: ${{ runner.temp }}/mode-push.out
         run: |
           node src/mode.mjs
-          grep -qx 'preview=false' "$GITHUB_OUTPUT"
-          grep -qx 'environment=production' "$GITHUB_OUTPUT"
+          grep -q 'preview<<' "$GITHUB_OUTPUT" && grep -A1 'preview<<' "$GITHUB_OUTPUT" | grep -qx false
+          grep -q 'environment<<' "$GITHUB_OUTPUT" && grep -A1 'environment<<' "$GITHUB_OUTPUT" | grep -qx production
 
       - name: mode.mjs — a closed pull_request decides teardown (no build)
         env:
@@ -76,8 +76,8 @@ jobs:
           GITHUB_OUTPUT: ${{ runner.temp }}/mode-pr-closed.out
         run: |
           node src/mode.mjs
-          grep -qx 'teardown=true' "$GITHUB_OUTPUT"
-          grep -qx 'environment=preview' "$GITHUB_OUTPUT"
+          grep -q 'teardown<<' "$GITHUB_OUTPUT" && grep -A1 'teardown<<' "$GITHUB_OUTPUT" | grep -qx true
+          grep -q 'environment<<' "$GITHUB_OUTPUT" && grep -A1 'environment<<' "$GITHUB_OUTPUT" | grep -qx preview
 
       - name: auth.mjs — full keyless exchange against a local echo hub
         env:
@@ -150,10 +150,10 @@ jobs:
         run: |
           cat > "$RUNNER_TEMP/preview.json" <<'JSON'
           { "preview": true, "spent": false, "root": "bbbb", "store_id": "aaaa",
-            "capsule": "aaaa:bbbb", "content_address": "dig://aaaa:bbbb/",
+            "capsule": "aaaa:bbbb", "content_address": "chia://aaaa:bbbb/",
             "artifact": "/tmp/x.dig", "artifact_size": 10, "resources": 1 }
           JSON
           node src/report.mjs "$RUNNER_TEMP/preview.json"
           grep -qi "preview" "$GITHUB_STEP_SUMMARY"
-          grep -q "dig://aaaa:bbbb/" "$GITHUB_STEP_SUMMARY"
+          grep -q "chia://aaaa:bbbb/" "$GITHUB_STEP_SUMMARY"
           grep -qx 'preview=true' "$GITHUB_OUTPUT" || grep -q 'preview<<' "$GITHUB_OUTPUT"

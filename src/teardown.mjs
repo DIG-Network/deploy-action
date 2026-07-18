@@ -12,35 +12,10 @@
 // $DIG. It is best-effort and ALWAYS exits 0: a PR that is already closing must
 // never be blocked by a cleanup step, so failures are logged as warnings only.
 
-import { readFileSync, appendFileSync } from "node:fs";
-
 import { deactivateDeployments, upsertComment } from "./github.mjs";
 import { buildTeardownCommentBody } from "./comment.mjs";
 import { makeRest } from "./rest.mjs";
-
-function writeSummary(md) {
-  const file = process.env.GITHUB_STEP_SUMMARY;
-  if (!file) return;
-  appendFileSync(file, `${md}\n`);
-}
-
-function envBool(name, dflt = true) {
-  const v = process.env[name];
-  if (v === undefined || v === "") return dflt;
-  return /^(1|true|yes)$/i.test(v.trim());
-}
-
-/** Pull the PR number from the Actions event payload (a pull_request `closed` event). */
-function prNumber() {
-  try {
-    const path = process.env.GITHUB_EVENT_PATH;
-    if (!path) return undefined;
-    const event = JSON.parse(readFileSync(path, "utf8"));
-    return event.pull_request?.number ?? event.number;
-  } catch {
-    return undefined;
-  }
-}
+import { writeSummary, envBool, prNumber } from "./actions-io.mjs";
 
 async function main() {
   const token = process.env.GITHUB_TOKEN || "";
