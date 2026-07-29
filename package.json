@@ -11,7 +11,18 @@
     "test": "node --test",
     "coverage": "node --test --experimental-test-coverage",
     "coverage:gate": "node .github/scripts/coverage-gate.mjs 80",
-    "check-action": "node .github/scripts/check-action.mjs"
+    "check-action": "node .github/scripts/check-action.mjs",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.8.0",
+    "prettier": "^3.3.3"
   },
   "license": "MIT",
   "repository": {
