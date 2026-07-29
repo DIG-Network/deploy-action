@@ -29,7 +29,13 @@
  *   `teardown` is true only for a closed pull_request: there is nothing left to build, so the
  *   composite action skips install/deploy and instead deactivates that PR's preview deployment(s).
  */
-export function decideMode({ eventName, eventAction, ref, defaultBranch, forcePreview = false } = {}) {
+export function decideMode({
+  eventName,
+  eventAction,
+  ref,
+  defaultBranch,
+  forcePreview = false,
+} = {}) {
   if (forcePreview) {
     return { preview: true, environment: "preview", forced: true, teardown: false };
   }
@@ -44,8 +50,7 @@ export function decideMode({ eventName, eventAction, ref, defaultBranch, forcePr
     return { preview: true, environment: "preview", forced: false, teardown: false };
   }
   // A real deploy happens ONLY on the default branch (push or manual dispatch).
-  const onDefault =
-    !!defaultBranch && ref === `refs/heads/${defaultBranch}`;
+  const onDefault = !!defaultBranch && ref === `refs/heads/${defaultBranch}`;
   const isDeployEvent = eventName === "push" || eventName === "workflow_dispatch";
   if (isDeployEvent && onDefault) {
     return { preview: false, environment: "production", forced: false, teardown: false };

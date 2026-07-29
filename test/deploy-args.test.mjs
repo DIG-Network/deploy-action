@@ -43,8 +43,12 @@ test("real deploy: bare minimum is just --output-dir + --json", () => {
 });
 
 test("real deploy: --if-changed only when truthy", () => {
-  assert.ok(buildDeployArgs({ preview: false, directory: "d", ifChanged: true }).includes("--if-changed"));
-  assert.ok(!buildDeployArgs({ preview: false, directory: "d", ifChanged: false }).includes("--if-changed"));
+  assert.ok(
+    buildDeployArgs({ preview: false, directory: "d", ifChanged: true }).includes("--if-changed"),
+  );
+  assert.ok(
+    !buildDeployArgs({ preview: false, directory: "d", ifChanged: false }).includes("--if-changed"),
+  );
 });
 
 test("real deploy: --store-id / --remote / --message / --wait-timeout each appear only when set", () => {
@@ -110,7 +114,10 @@ test("real deploy: every optional flag together, in the action's declared order"
 
 test("real deploy: a numeric waitTimeout of 0 is still passed (falsy string check, not truthiness)", () => {
   const args = buildDeployArgs({ preview: false, directory: "d", waitTimeout: 0 });
-  assert.ok(args.includes("--wait-timeout"), "0 is a meaningful (submit-and-don't-block) value, not 'unset'");
+  assert.ok(
+    args.includes("--wait-timeout"),
+    "0 is a meaningful (submit-and-don't-block) value, not 'unset'",
+  );
   assert.ok(args.includes("0"));
 });
 

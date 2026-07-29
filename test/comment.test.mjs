@@ -66,7 +66,11 @@ test("a FREE preview build (#18) shows the shareable address and no spend", () =
   );
   const body = buildCommentBody({ result: r, sha: "abc", preview: true });
   assert.match(body, /preview/i, "labelled a preview");
-  assert.match(body, new RegExp(`chia://${STORE}:${ROOT}/`), "shows the shareable chia:// content address");
+  assert.match(
+    body,
+    new RegExp(`chia://${STORE}:${ROOT}/`),
+    "shows the shareable chia:// content address",
+  );
   assert.doesNotMatch(body, /\*\*Cost\*\*/, "a free preview shows no cost line");
   assert.match(body, /free|no.?spend|nothing (was )?spent/i, "states it is free");
 });

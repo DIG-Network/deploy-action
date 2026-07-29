@@ -41,28 +41,28 @@ commit status).
 All inputs are optional and carry the defaults below. Every credential MUST be supplied from a
 repository secret, never inline.
 
-| Input | Default | Meaning |
-|---|---|---|
-| `directory` | `dist` | Built-output directory to publish (`digstore deploy --output-dir`). |
-| `store-id` | `""` | 64-hex store id to advance. Falls back to the OIDC binding, then `dig.toml`. |
-| `if-changed` | `true` | Skip the deploy (and spend) when the build is byte-identical to the live version. |
-| `preview` | `false` | Force a preview even off the default branch. Fails closed unless `allow-paid-preview` (see §4). |
-| `allow-paid-preview` | `false` | Opt in to the paid `preview: true` path while free previews (#18) are unavailable. |
-| `digstore-version` | `v0.6.0` | digstore CLI version: a release tag, git ref/branch, or `latest`. |
-| `keyless` | `true` | Keyless CI auth via GitHub OIDC (§3). Requires `id-token: write`. |
-| `api-base` | `https://hub.dig.net/v1` | Hub control-plane API base for the OIDC exchange. |
-| `writer-key` | `""` | On-chain writer delegate key (64-hex): advances root only, revocable. `DIGSTORE_WRITER_KEY`. |
-| `passphrase` | `""` | Funding wallet `DIGSTORE_PASSPHRASE` — pays the on-chain fee on a real deploy. |
-| `deploy-key` | `""` | §21 publisher deploy key (no spend authority). `DIGSTORE_DEPLOY_KEY`. |
-| `mnemonic` | `""` | Funding wallet BIP-39 mnemonic, imported under `passphrase`. |
-| `salt` | `""` | 64-hex secret salt for a private store. `DIGSTORE_STORE_SALT`. |
-| `remote` | `""` | Remote to publish to (defaults to the public DIGHub). |
-| `message` | `""` | Commit message for the new capsule (defaults to the deployed commit). |
-| `build-command` | `""` | Optional shell build command run before deploying. |
-| `wait-timeout` | `600` | Seconds to wait for on-chain confirmation (`0` = submit, don't block). |
-| `comment-on-pr` | `true` | On a PR, upsert the comment and set the deployment + commit status. |
-| `github-token` | `${{ github.token }}` | Token for the PR comment / deployment / commit status. |
-| `working-directory` | `.` | Directory to run `digstore` from (where `dig.toml` lives). |
+| Input                | Default                  | Meaning                                                                                         |
+| -------------------- | ------------------------ | ----------------------------------------------------------------------------------------------- |
+| `directory`          | `dist`                   | Built-output directory to publish (`digstore deploy --output-dir`).                             |
+| `store-id`           | `""`                     | 64-hex store id to advance. Falls back to the OIDC binding, then `dig.toml`.                    |
+| `if-changed`         | `true`                   | Skip the deploy (and spend) when the build is byte-identical to the live version.               |
+| `preview`            | `false`                  | Force a preview even off the default branch. Fails closed unless `allow-paid-preview` (see §4). |
+| `allow-paid-preview` | `false`                  | Opt in to the paid `preview: true` path while free previews (#18) are unavailable.              |
+| `digstore-version`   | `v0.6.0`                 | digstore CLI version: a release tag, git ref/branch, or `latest`.                               |
+| `keyless`            | `true`                   | Keyless CI auth via GitHub OIDC (§3). Requires `id-token: write`.                               |
+| `api-base`           | `https://hub.dig.net/v1` | Hub control-plane API base for the OIDC exchange.                                               |
+| `writer-key`         | `""`                     | On-chain writer delegate key (64-hex): advances root only, revocable. `DIGSTORE_WRITER_KEY`.    |
+| `passphrase`         | `""`                     | Funding wallet `DIGSTORE_PASSPHRASE` — pays the on-chain fee on a real deploy.                  |
+| `deploy-key`         | `""`                     | §21 publisher deploy key (no spend authority). `DIGSTORE_DEPLOY_KEY`.                           |
+| `mnemonic`           | `""`                     | Funding wallet BIP-39 mnemonic, imported under `passphrase`.                                    |
+| `salt`               | `""`                     | 64-hex secret salt for a private store. `DIGSTORE_STORE_SALT`.                                  |
+| `remote`             | `""`                     | Remote to publish to (defaults to the public DIGHub).                                           |
+| `message`            | `""`                     | Commit message for the new capsule (defaults to the deployed commit).                           |
+| `build-command`      | `""`                     | Optional shell build command run before deploying.                                              |
+| `wait-timeout`       | `600`                    | Seconds to wait for on-chain confirmation (`0` = submit, don't block).                          |
+| `comment-on-pr`      | `true`                   | On a PR, upsert the comment and set the deployment + commit status.                             |
+| `github-token`       | `${{ github.token }}`    | Token for the PR comment / deployment / commit status.                                          |
+| `working-directory`  | `.`                      | Directory to run `digstore` from (where `dig.toml` lives).                                      |
 
 Inputs are passed to the deploy shell exclusively through `env:` (never interpolated into the `run:`
 body), so an input value can never inject shell — this script-injection-safe pattern MUST be
@@ -97,10 +97,12 @@ Keyless auth removes the long-lived hub secret from the repo. On a real deploy (
 
 3. **Writes the on-disk session** digstore consumes, at `{DIG_IDENTITY_DIR}/session.json`, mode
    `0600`. Shape (`buildSessionJson`):
+
    ```json
    { "access_token": "<string>", "api_base": "<api-base, trailing slashes trimmed>",
      "obtained_at": <unix-seconds>, "expires_in": <number, optional> }
    ```
+
    `obtained_at` defaults to the current unix time. Fields beyond these default inside digstore.
 
 4. **Emits `store-id`** to `$GITHUB_OUTPUT` (multiline heredoc form) so the deploy step targets the
@@ -198,13 +200,13 @@ JSON objects back-to-back on stdout, possibly interleaved with non-JSON human/lo
 The recognized digstore emit shapes are:
 
 - **Successful publish:** a commit block `{ root, capsule, module, size, coin_id, anchor_status,
-  mocked, pushed, claimed | push_error }` followed by a separate `{ hub_url }` block.
+mocked, pushed, claimed | push_error }` followed by a separate `{ hub_url }` block.
 - **`--if-changed` no-op:** `{ skipped: true, reason, root, capsule, store_id, spent: false,
-  pushed: false }`.
+pushed: false }`.
 - **`--dry-run`:** `{ dry_run: true, root, capsule, store_id, cost_dig, cost_dig_display,
-  fee_xch_mojos, fee_xch_display, spent: false, hub_url? }`.
+fee_xch_mojos, fee_xch_display, spent: false, hub_url? }`.
 - **`--preview` free build:** `{ preview: true, spent: false, mocked, root, store_id, capsule,
-  content_address, artifact, artifact_size, resources }` — an EPHEMERAL preview store
+content_address, artifact, artifact_size, resources }` — an EPHEMERAL preview store
   (content-derived id), no chain, no spend.
 
 ### 6.1 Normalized result shape
@@ -286,7 +288,7 @@ step always runs, so a catalogued outcome is written even on the failure path.
 - **Best-effort PR reporting:** a reporting failure (e.g. a missing token scope, a GitHub API error)
   MUST NOT fail a deploy that already succeeded — those calls are wrapped and downgraded to a warning.
 - **Hard failure:** the Action exits 1 only when the DEPLOY itself failed (`statusState(result) ===
-  "failure"`) — a push error, or anchored-but-not-pushed — so CI goes red on a broken deploy. A
+"failure"`) — a push error, or anchored-but-not-pushed — so CI goes red on a broken deploy. A
   `skipped` no-op and a `dry-run` are successes.
 
 ### 7.1 PR comment body (`src/comment.mjs`)

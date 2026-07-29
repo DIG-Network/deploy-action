@@ -30,7 +30,9 @@ const out = `${res.stdout || ""}\n${res.stderr || ""}`;
 // The tests themselves must pass first — a coverage number from a red suite is meaningless.
 if (res.status !== 0) {
   process.stdout.write(out);
-  console.error(`\ncoverage-gate: the test suite failed (exit ${res.status}); not evaluating coverage.`);
+  console.error(
+    `\ncoverage-gate: the test suite failed (exit ${res.status}); not evaluating coverage.`,
+  );
   process.exit(res.status || 1);
 }
 
@@ -38,16 +40,16 @@ if (res.status !== 0) {
 // We look at the shipped runtime files under src/ plus the "all files" summary.
 const rows = [];
 for (const line of out.split(/\r?\n/)) {
-  const m = line.match(
-    /^#\s+(.+?)\s+\|\s+([\d.]+)\s+\|\s+([\d.]+)\s+\|\s+([\d.]+)\s+\|/,
-  );
+  const m = line.match(/^#\s+(.+?)\s+\|\s+([\d.]+)\s+\|\s+([\d.]+)\s+\|\s+([\d.]+)\s+\|/);
   if (!m) continue;
   const file = m[1].trim();
   rows.push({ file, line: Number(m[2]), branch: Number(m[3]), funcs: Number(m[4]) });
 }
 
 if (rows.length === 0) {
-  console.error("coverage-gate: could not find a coverage table — did --experimental-test-coverage run?");
+  console.error(
+    "coverage-gate: could not find a coverage table — did --experimental-test-coverage run?",
+  );
   process.stdout.write(out);
   process.exit(1);
 }
@@ -84,4 +86,6 @@ if (!ok) {
   console.error(`\ncoverage-gate: FAILED — line coverage below ${THRESHOLD}%.`);
   process.exit(1);
 }
-console.log(`\ncoverage-gate: OK — all shipped src/ modules and the overall total are >= ${THRESHOLD}% lines.`);
+console.log(
+  `\ncoverage-gate: OK — all shipped src/ modules and the overall total are >= ${THRESHOLD}% lines.`,
+);

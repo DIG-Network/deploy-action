@@ -135,9 +135,7 @@ export function parseDeployJson(stdout) {
   // urn:dig:chia:<storeId>:<root> — the root-pinned URN permalink (matches hub address.js); the
   //   urn:dig: namespace stays dig:// (exempt from the user-facing rename).
   const chiaUrl = storeId ? `chia://${storeId}/` : undefined;
-  const urn = storeId
-    ? `urn:dig:chia:${storeId}${root ? `:${root}` : ""}`
-    : undefined;
+  const urn = storeId ? `urn:dig:chia:${storeId}${root ? `:${root}` : ""}` : undefined;
 
   return {
     capsule,

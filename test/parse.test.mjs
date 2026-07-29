@@ -172,10 +172,7 @@ test("tolerates leading human noise lines before the JSON blocks", () => {
 });
 
 test("throws a clear error when no JSON object is present", () => {
-  assert.throws(
-    () => parseDeployJson("no json here at all\njust text"),
-    /no JSON/i,
-  );
+  assert.throws(() => parseDeployJson("no json here at all\njust text"), /no JSON/i);
 });
 
 test("captures a push_error block without throwing", () => {
@@ -262,7 +259,15 @@ test("computeOutcome respects an explicit timedOut flag", () => {
 });
 
 test("OUTCOMES enumerates every catalogued outcome value", () => {
-  for (const v of ["success", "skipped", "preview", "dry-run", "anchor-failed", "push-failed", "timed-out"]) {
+  for (const v of [
+    "success",
+    "skipped",
+    "preview",
+    "dry-run",
+    "anchor-failed",
+    "push-failed",
+    "timed-out",
+  ]) {
     assert.ok(OUTCOMES.includes(v), `OUTCOMES includes ${v}`);
   }
 });

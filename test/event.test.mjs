@@ -12,7 +12,11 @@ import assert from "node:assert/strict";
 import { decideMode, previewSpendGuard } from "../src/event.mjs";
 
 test("pull_request → preview (free, no spend)", () => {
-  const m = decideMode({ eventName: "pull_request", ref: "refs/heads/feature", defaultBranch: "main" });
+  const m = decideMode({
+    eventName: "pull_request",
+    ref: "refs/heads/feature",
+    defaultBranch: "main",
+  });
   assert.equal(m.preview, true);
   assert.equal(m.environment, "preview");
 });
@@ -40,7 +44,11 @@ test("an explicit preview input forces preview even on a default-branch push", (
 });
 
 test("workflow_dispatch on the default branch deploys for real", () => {
-  const m = decideMode({ eventName: "workflow_dispatch", ref: "refs/heads/main", defaultBranch: "main" });
+  const m = decideMode({
+    eventName: "workflow_dispatch",
+    ref: "refs/heads/main",
+    defaultBranch: "main",
+  });
   assert.equal(m.preview, false);
   assert.equal(m.environment, "production");
 });
@@ -76,11 +84,20 @@ test("an auto event-based preview is NEVER blocked (no explicit preview input)",
 
 test("decideMode reports whether the preview was FORCED by the input", () => {
   // Forced preview on a default-branch push: forced=true.
-  const forced = decideMode({ eventName: "push", ref: "refs/heads/main", defaultBranch: "main", forcePreview: true });
+  const forced = decideMode({
+    eventName: "push",
+    ref: "refs/heads/main",
+    defaultBranch: "main",
+    forcePreview: true,
+  });
   assert.equal(forced.preview, true);
   assert.equal(forced.forced, true, "the preview was forced by the input");
   // Auto preview on a PR: not forced.
-  const auto = decideMode({ eventName: "pull_request", ref: "refs/heads/f", defaultBranch: "main" });
+  const auto = decideMode({
+    eventName: "pull_request",
+    ref: "refs/heads/f",
+    defaultBranch: "main",
+  });
   assert.equal(auto.preview, true);
   assert.equal(auto.forced, false, "an event-derived preview is not forced");
 });
@@ -136,8 +153,12 @@ test("teardown is false on every non-pull_request-closed decision", () => {
     false,
   );
   assert.equal(
-    decideMode({ eventName: "push", ref: "refs/heads/main", defaultBranch: "main", forcePreview: true })
-      .teardown,
+    decideMode({
+      eventName: "push",
+      ref: "refs/heads/main",
+      defaultBranch: "main",
+      forcePreview: true,
+    }).teardown,
     false,
   );
 });

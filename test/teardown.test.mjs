@@ -45,7 +45,11 @@ function startGitHubApi({ deployments = [] } = {}) {
     req.on("end", () => {
       requests.push({ method: req.method, url: req.url, body: body || undefined });
       res.setHeader("content-type", "application/json");
-      if (req.method === "GET" && req.url.startsWith("/repos/") && req.url.includes("/deployments?")) {
+      if (
+        req.method === "GET" &&
+        req.url.startsWith("/repos/") &&
+        req.url.includes("/deployments?")
+      ) {
         return res.end(JSON.stringify(deployments));
       }
       if (req.method === "GET") return res.end("[]"); // comment listing → empty, so it CREATEs
@@ -112,14 +116,18 @@ test("teardown deactivates the PR's preview deployments and updates the comment"
       !paths.some((p) => p === "POST /repos/DIG-Network/example/deployments/2/statuses"),
       "left deployment 2 alone (a different PR)",
     );
-    const status1 = api.requests.find((r) => r.url === "/repos/DIG-Network/example/deployments/1/statuses");
+    const status1 = api.requests.find(
+      (r) => r.url === "/repos/DIG-Network/example/deployments/1/statuses",
+    );
     assert.equal(JSON.parse(status1.body).state, "inactive");
 
     assert.ok(
       paths.some((p) => p === "POST /repos/DIG-Network/example/issues/77/comments"),
       "posted the teardown comment",
     );
-    const comment = api.requests.find((r) => r.url === "/repos/DIG-Network/example/issues/77/comments");
+    const comment = api.requests.find(
+      (r) => r.url === "/repos/DIG-Network/example/issues/77/comments",
+    );
     assert.match(JSON.parse(comment.body).body, /closed/i);
 
     const summary = readFileSync(summaryFile, "utf8");
