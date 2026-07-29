@@ -17,12 +17,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  OIDC_AUDIENCE,
-  requestOidcToken,
-  exchangeOidc,
-  buildSessionJson,
-} from "./oidc.mjs";
+import { OIDC_AUDIENCE, requestOidcToken, exchangeOidc, buildSessionJson } from "./oidc.mjs";
 import { emitOutput } from "./actions-io.mjs";
 
 async function main() {
@@ -47,9 +42,13 @@ async function main() {
 
   // 3. Persist the session where digstore looks (owner-readable; mode 0600 on POSIX).
   mkdirSync(identityDir, { recursive: true });
-  writeFileSync(join(identityDir, "session.json"), buildSessionJson({ accessToken, apiBase, expiresIn }), {
-    mode: 0o600,
-  });
+  writeFileSync(
+    join(identityDir, "session.json"),
+    buildSessionJson({ accessToken, apiBase, expiresIn }),
+    {
+      mode: 0o600,
+    },
+  );
 
   // 4. Hand the bound store id to the deploy step (never prints the token).
   if (storeId) emitOutput("store-id", storeId);

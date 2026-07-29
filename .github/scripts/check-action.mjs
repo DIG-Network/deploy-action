@@ -22,9 +22,7 @@ if (start < 0 || end < 0 || end < start) {
   process.exit(1);
 }
 const block = actionYml.slice(start, end);
-const declared = new Set(
-  [...block.matchAll(/^ {2}([a-z0-9-]+):/gm)].map((m) => m[1]),
-);
+const declared = new Set([...block.matchAll(/^ {2}([a-z0-9-]+):/gm)].map((m) => m[1]));
 
 // The keys the implementation actually emits (values are irrelevant here).
 const emitted = new Set(Object.keys(toOutputs({})));
@@ -38,7 +36,9 @@ const missingInImpl = [...declared].filter((k) => !emitted.has(k) && !MODE_SOURC
 
 let ok = true;
 if (missingInYml.length) {
-  console.error(`outputs emitted by toOutputs() but not declared in action.yml: ${missingInYml.join(", ")}`);
+  console.error(
+    `outputs emitted by toOutputs() but not declared in action.yml: ${missingInYml.join(", ")}`,
+  );
   ok = false;
 }
 if (missingInImpl.length) {

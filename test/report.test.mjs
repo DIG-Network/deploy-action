@@ -28,7 +28,7 @@ function runEntry(args, env) {
         if (err && typeof err.code !== "number" && err.killed) {
           return reject(new Error(`entry timed out: ${err.message}`));
         }
-        resolve({ code: err ? err.code ?? 1 : 0, stdout, stderr });
+        resolve({ code: err ? (err.code ?? 1) : 0, stdout, stderr });
       },
     );
     child.on("error", reject);
@@ -269,9 +269,7 @@ test("report upserts a PR comment + deployment + commit status against a live (l
       "set a commit status on the sha",
     );
     // The created comment body carries the capsule.
-    const created = api.requests.find(
-      (r) => r.method === "POST" && r.url.endsWith("/comments"),
-    );
+    const created = api.requests.find((r) => r.method === "POST" && r.url.endsWith("/comments"));
     assert.match(JSON.parse(created.body).body, new RegExp(`${STORE}:${ROOT}`));
   } finally {
     api.server.close();

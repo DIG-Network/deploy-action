@@ -5,7 +5,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { upsertComment, reportDeployment, statusState, deactivateDeployments } from "../src/github.mjs";
+import {
+  upsertComment,
+  reportDeployment,
+  statusState,
+  deactivateDeployments,
+} from "../src/github.mjs";
 import { COMMENT_MARKER } from "../src/comment.mjs";
 
 // Minimal mock of the subset of the GitHub REST client we use, recording calls.
@@ -110,10 +115,7 @@ test("reportDeployment creates a deployment, a status, and a commit status (succ
   assert.equal(gh.calls.deployments[0].environment, "production");
   assert.equal(gh.calls.deploymentStatuses.length, 1);
   assert.equal(gh.calls.deploymentStatuses[0].state, "success");
-  assert.equal(
-    gh.calls.deploymentStatuses[0].environment_url,
-    "https://hub.dig.net/stores/a",
-  );
+  assert.equal(gh.calls.deploymentStatuses[0].environment_url, "https://hub.dig.net/stores/a");
   assert.equal(gh.calls.statuses.length, 1);
   assert.equal(gh.calls.statuses[0].state, "success");
   assert.equal(gh.calls.statuses[0].sha, "deadbeef");
@@ -188,13 +190,21 @@ test("deactivateDeployments tolerates a stringified JSON payload", async () => {
   const gh = mockGitHub({
     deploymentsList: [{ id: 5, payload: JSON.stringify({ pr: 3 }) }],
   });
-  const count = await deactivateDeployments(gh.rest, { ...REPO, environment: "preview", prNumber: 3 });
+  const count = await deactivateDeployments(gh.rest, {
+    ...REPO,
+    environment: "preview",
+    prNumber: 3,
+  });
   assert.equal(count, 1);
 });
 
 test("deactivateDeployments returns 0 when nothing matches the PR", async () => {
   const gh = mockGitHub({ deploymentsList: [{ id: 1, payload: { pr: 9 } }] });
-  const count = await deactivateDeployments(gh.rest, { ...REPO, environment: "preview", prNumber: 7 });
+  const count = await deactivateDeployments(gh.rest, {
+    ...REPO,
+    environment: "preview",
+    prNumber: 7,
+  });
   assert.equal(count, 0);
   assert.equal(gh.calls.deploymentStatuses.length, 0);
 });
@@ -210,7 +220,11 @@ test("deactivateDeployments is best-effort: one failing status doesn't stop the 
     if (args.deployment_id === 1) throw new Error("boom");
     return { data: { id: 1 } };
   };
-  const count = await deactivateDeployments(gh.rest, { ...REPO, environment: "preview", prNumber: 7 });
+  const count = await deactivateDeployments(gh.rest, {
+    ...REPO,
+    environment: "preview",
+    prNumber: 7,
+  });
   assert.equal(count, 1, "the failing deployment is skipped, the rest still get deactivated");
 });
 
@@ -219,6 +233,10 @@ test("deactivateDeployments returns 0 when listing deployments itself fails", as
   gh.rest.repos.listDeployments = async () => {
     throw new Error("network error");
   };
-  const count = await deactivateDeployments(gh.rest, { ...REPO, environment: "preview", prNumber: 7 });
+  const count = await deactivateDeployments(gh.rest, {
+    ...REPO,
+    environment: "preview",
+    prNumber: 7,
+  });
   assert.equal(count, 0);
 });

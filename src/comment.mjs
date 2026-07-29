@@ -47,7 +47,9 @@ export function buildCommentBody({ result, sha, preview = false }) {
   } else if (result.dryRun) {
     lines.push(`### DIG ${kind} — dry run (no spend)`);
     lines.push("");
-    lines.push("This is a preview of the resulting version and its cost. Nothing was published or spent.");
+    lines.push(
+      "This is a preview of the resulting version and its cost. Nothing was published or spent.",
+    );
   } else if (result.pushed === false && result.pushError) {
     lines.push(`### DIG ${kind} — anchored on-chain, hub publish failed`);
     lines.push("");
@@ -93,7 +95,8 @@ export function buildCommentBody({ result, sha, preview = false }) {
   // URN + hub URL describe the PRODUCTION store; a preview store is ephemeral, so
   // they are omitted for a preview (its address is the content-address above).
   if (result.urn && !result.preview) rows.push(["URN (permalink)", `\`${result.urn}\``]);
-  if (result.hubUrl && !result.preview) rows.push(["Open on the hub", `[${result.hubUrl}](${result.hubUrl})`]);
+  if (result.hubUrl && !result.preview)
+    rows.push(["Open on the hub", `[${result.hubUrl}](${result.hubUrl})`]);
   if (result.root) rows.push(["Root", `\`${short(result.root)}\``]);
   // Full coin id (not shortened): it is the on-chain provenance a developer
   // copies to look the deploy up on a block explorer (#24).
@@ -147,7 +150,7 @@ export function buildTeardownCommentBody({ deactivated = 0 } = {}) {
   lines.push(
     deactivated > 0
       ? `This pull request closed. ${deactivated} preview deployment${deactivated === 1 ? "" : "s"} ` +
-        `${deactivated === 1 ? "was" : "were"} marked inactive — nothing was spent.`
+          `${deactivated === 1 ? "was" : "were"} marked inactive — nothing was spent.`
       : "This pull request closed. No preview deployment needed to be marked inactive.",
   );
   lines.push("");

@@ -57,7 +57,9 @@ if (guard.blocked) {
   console.error(`::error::${guard.reason}`);
   process.exitCode = 1;
 } else if (teardown) {
-  console.log("DIG deploy mode: teardown (PR closed — no build, marking preview deployment(s) inactive)");
+  console.log(
+    "DIG deploy mode: teardown (PR closed — no build, marking preview deployment(s) inactive)",
+  );
 } else {
   console.log(`DIG deploy mode: ${preview ? "preview (free, no spend)" : "production deploy"}`);
 }

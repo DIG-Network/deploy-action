@@ -48,8 +48,7 @@ function failureOutputs() {
   let outcome = (process.env.DIG_PRIOR_OUTCOME || "").trim();
   if (!OUTCOMES.includes(outcome)) outcome = "failed";
   const reason =
-    (process.env.DIG_PRIOR_REASON || "").trim() ||
-    "the deploy failed before producing a result";
+    (process.env.DIG_PRIOR_REASON || "").trim() || "the deploy failed before producing a result";
   return {
     outcome,
     "failure-reason": reason,
@@ -84,10 +83,7 @@ async function main() {
   // A preview is whatever the CLI reported (a real `--preview` free build), OR an
   // explicit DIG_PREVIEW request from the action — either marks this PR-preview.
   const preview = result.preview === true || envBool("DIG_PREVIEW", false);
-  const sha =
-    process.env.DIG_DEPLOY_SHA ||
-    process.env.GITHUB_SHA ||
-    "";
+  const sha = process.env.DIG_DEPLOY_SHA || process.env.GITHUB_SHA || "";
 
   // Job summary (always — visible even on non-PR pushes).
   writeSummary(buildCommentBody({ result, sha, preview }));
@@ -134,7 +130,9 @@ async function main() {
   // Hard-fail the action only when the deploy itself failed (anchor/push) so CI
   // goes red. A skipped no-op and a dry-run are both successes.
   if (statusState(result) === "failure") {
-    console.error(`::error::DIG deploy failed: ${result.pushError || "anchor/push did not complete"}`);
+    console.error(
+      `::error::DIG deploy failed: ${result.pushError || "anchor/push did not complete"}`,
+    );
     process.exitCode = 1;
   }
 }

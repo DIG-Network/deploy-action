@@ -46,7 +46,10 @@ export function makeRest(token) {
     rest: {
       issues: {
         listComments: ({ owner, repo, issue_number, per_page = 100 }) =>
-          call("GET", `/repos/${owner}/${repo}/issues/${issue_number}/comments?per_page=${per_page}`),
+          call(
+            "GET",
+            `/repos/${owner}/${repo}/issues/${issue_number}/comments?per_page=${per_page}`,
+          ),
         createComment: ({ owner, repo, issue_number, body }) =>
           call("POST", `/repos/${owner}/${repo}/issues/${issue_number}/comments`, { body }),
         updateComment: ({ owner, repo, comment_id, body }) =>
