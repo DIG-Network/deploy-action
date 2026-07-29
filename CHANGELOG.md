@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org) and
 [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.2.3] - 2026-07-29
+
+### CI
+- **deploy-action:** Add ESLint + Prettier §2.4a Format/Lint gates for JS source (#1812)
+
 ## [0.2.2] - 2026-07-18
 
 ### Chores
