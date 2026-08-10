@@ -271,6 +271,20 @@ skipped, spent, pushed, preview, json, outcome, failure-reason
   (§4), not `toOutputs` — they are declared in `action.yml` but excluded from the
   `check-action.mjs` `toOutputs()`-parity check as `MODE_SOURCED`.
 
+### 6.4 Step-output encoding (`src/actions-io.mjs`)
+
+Every step output is written to `$GITHUB_OUTPUT` in the multiline heredoc form
+`key<<DELIM\nvalue\nDELIM\n`, where `DELIM` is `__dig_eof_<uuid>__` for a freshly generated
+RFC 4122 UUID — one per emitted key. The delimiter is an internal encoding detail: no consumer may
+depend on its shape.
+
+- The delimiter MUST come from a CSPRNG (`crypto.randomUUID()`) and MUST be fixed-length and
+  non-empty.
+- If the key or the value contains the generated delimiter, the action MUST throw and write
+  **nothing** for that key. It MUST NOT truncate, escape, or silently regenerate: a value that closes
+  the heredoc early would have its remainder parsed by the runner as further step outputs, letting
+  attacker-influenced content (`failure-reason` can carry remote text) forge any declared output.
+
 ---
 
 ## 7. Reporting (`src/report.mjs`, `src/comment.mjs`, `src/github.mjs`, `src/rest.mjs`)
@@ -373,6 +387,8 @@ any) were marked inactive and that nothing was spent.
   needed solely on a real deploy. Previews require no OIDC, no writer-key, and no wallet.
 - **Secret hygiene:** tokens are never logged or emitted; the session file is `0600`; inputs reach
   the shell only via `env:` (injection-safe).
+- **Step-output integrity:** outputs are heredoc-encoded with a per-key CSPRNG delimiter and a value
+  that contains it is rejected outright (§6.4), so no value can inject an additional step output.
 - **Merge-gating:** a failed/timed-out anchor or push sets a `failure` commit status (a red X) so a
   broken deploy can block merge.
 

@@ -4,20 +4,48 @@
 // number. Pure glue to the Actions file-based commands; no deploy logic here.
 
 import { appendFileSync, readFileSync } from "node:fs";
+// Imported as the module OBJECT (not `{ randomUUID }`) so tests can stub the
+// delimiter and exercise a value that genuinely contains it — the only fixture
+// that can tell the guard below apart from an unguarded UUID delimiter.
+import crypto from "node:crypto";
 
 /**
- * Append one `key=value` step output using the heredoc-safe multiline form
+ * Build the heredoc block for one step output, in the multiline form
  * (`key<<DELIM\nvalue\nDELIM\n`) GitHub Actions requires for any value that might
  * contain a newline — a JSON blob, a URL, an error message, … — see
  * https://docs.github.com/actions/using-workflows/workflow-commands-for-github-actions#multiline-strings.
- * A random per-call delimiter avoids collision with the value's own content.
- * No-op outside Actions (when `$GITHUB_OUTPUT` isn't set, e.g. running locally).
+ *
+ * The delimiter is a fresh UUID per call, and neither the key nor the value may
+ * contain it. Both halves matter: a value carrying the delimiter would close the
+ * heredoc early and the runner would parse the remainder as FURTHER step outputs,
+ * so attacker-influenced content (`failure-reason` can carry remote text) could
+ * forge any output this action declares. This mirrors `@actions/core`'s
+ * `prepareKeyValueMessage`, deliberately including its throw-don't-truncate
+ * behaviour: a UUID collision is not a realistic accident, so a value containing
+ * one means the caller is doing something the runner cannot represent, and
+ * failing the step loudly is safer than writing bytes with a different meaning
+ * than the caller intended.
+ *
+ * @throws {Error} when the key or value contains the generated delimiter.
+ */
+function heredocBlock(key, value) {
+  const delim = `__dig_eof_${crypto.randomUUID()}__`;
+  const text = String(value);
+  if (String(key).includes(delim) || text.includes(delim)) {
+    throw new Error(`refusing to emit "${key}": key or value contains the heredoc delimiter`);
+  }
+  return `${key}<<${delim}\n${text}\n${delim}\n`;
+}
+
+/**
+ * Append one `key=value` step output to `$GITHUB_OUTPUT` (see {@link heredocBlock}
+ * for the format and its injection guard). No-op outside Actions (when
+ * `$GITHUB_OUTPUT` isn't set, e.g. running locally).
  */
 export function emitOutput(key, value) {
   const file = process.env.GITHUB_OUTPUT;
   if (!file) return;
-  const delim = `__dig_eof_${Math.random().toString(36).slice(2)}__`;
-  appendFileSync(file, `${key}<<${delim}\n${value}\n${delim}\n`);
+  appendFileSync(file, heredocBlock(key, value));
 }
 
 /** Append every `[key, value]` in `outputs` as a step output (see {@link emitOutput}). */
