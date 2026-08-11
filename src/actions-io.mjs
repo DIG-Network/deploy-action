@@ -18,8 +18,12 @@ import crypto from "node:crypto";
  * The delimiter is a fresh UUID per call, and neither the key nor the value may
  * contain it. Both halves matter: a value carrying the delimiter would close the
  * heredoc early and the runner would parse the remainder as FURTHER step outputs,
- * so attacker-influenced content (`failure-reason` can carry remote text) could
- * forge any output this action declares. This mirrors `@actions/core`'s
+ * so attacker-influenced content could forge any output this action declares. The
+ * untrusted values are the ones taken verbatim off `digstore` stdout and the hub's
+ * OIDC response with no shape validation — `push_error` (which reaches
+ * `failure-reason`), `store_id`, `capsule`, `root`, `coin_id`, `hub_url`. Note
+ * `DIG_PRIOR_REASON` is NOT untrusted; `action.yml` resolves it to one of four
+ * hardcoded literals. This mirrors `@actions/core`'s
  * `prepareKeyValueMessage`, deliberately including its throw-don't-truncate
  * behaviour: a UUID collision is not a realistic accident, so a value containing
  * one means the caller is doing something the runner cannot represent, and
@@ -48,7 +52,14 @@ export function emitOutput(key, value) {
   appendFileSync(file, heredocBlock(key, value));
 }
 
-/** Append every `[key, value]` in `outputs` as a step output (see {@link emitOutput}). */
+/**
+ * Append every `[key, value]` in `outputs` as a step output (see {@link emitOutput}).
+ *
+ * NOT atomic: keys are appended one at a time, so a throw on key N leaves keys
+ * 1..N-1 already in the file and the rest absent. The step then exits non-zero, so
+ * a consumer that does not run on failure never sees the partial set — but one
+ * using `if: always()` must not read a present output as proof the batch completed.
+ */
 export function emitOutputs(outputs) {
   for (const [key, value] of Object.entries(outputs)) emitOutput(key, value);
 }

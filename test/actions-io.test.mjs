@@ -28,7 +28,15 @@ function withOutputFile(t) {
   return () => readFileSync(file, "utf8");
 }
 
-/** Parse an Actions output file into `{ key: value }`, exactly as the runner does. */
+/**
+ * Parse an Actions output file into `{ key: value }`, following the runner's
+ * `key<<DELIM` / `key=value` grammar. Deliberately a SIMPLIFICATION, not a faithful
+ * port: the real runner also splits lines on a bare `\r`, throws on a line carrying
+ * neither separator, and throws on an unterminated heredoc. This parser is strictly
+ * more FORGIVING on all three, which is the safe direction for what it is used for —
+ * showing that an injected key is ABSENT. It cannot show that the runner would accept
+ * what this parser accepts.
+ */
 function parseOutputs(text) {
   const parsed = {};
   const lines = text.split("\n");

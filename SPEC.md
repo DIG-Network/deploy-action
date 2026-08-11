@@ -273,17 +273,28 @@ skipped, spent, pushed, preview, json, outcome, failure-reason
 
 ### 6.4 Step-output encoding (`src/actions-io.mjs`)
 
-Every step output is written to `$GITHUB_OUTPUT` in the multiline heredoc form
-`key<<DELIM\nvalue\nDELIM\n`, where `DELIM` is `__dig_eof_<uuid>__` for a freshly generated
-RFC 4122 UUID — one per emitted key. The delimiter is an internal encoding detail: no consumer may
-depend on its shape.
+Every step output emitted by `src/actions-io.mjs` is written to `$GITHUB_OUTPUT` in the multiline
+heredoc form `key<<DELIM\nvalue\nDELIM\n`, where `DELIM` is `__dig_eof_<uuid>__` for a freshly
+generated RFC 4122 UUID — one per emitted key. The delimiter is an internal encoding detail: no
+consumer may depend on its shape.
 
 - The delimiter MUST come from a CSPRNG (`crypto.randomUUID()`) and MUST be fixed-length and
   non-empty.
 - If the key or the value contains the generated delimiter, the action MUST throw and write
   **nothing** for that key. It MUST NOT truncate, escape, or silently regenerate: a value that closes
   the heredoc early would have its remainder parsed by the runner as further step outputs, letting
-  attacker-influenced content (`failure-reason` can carry remote text) forge any declared output.
+  attacker-influenced content forge any declared output. The concrete untrusted sources are
+  `push_error`, `store_id`, `capsule`, `root`, `coin_id` and `hub_url` — all taken verbatim off
+  `digstore` stdout (`src/parse.mjs`) or the hub's OIDC response (`src/oidc.mjs`) with no shape
+  validation. `DIG_PRIOR_REASON` is NOT one of them: `action.yml` resolves it to one of four
+  hardcoded literals.
+- The guard is per KEY, not per batch. `emitOutputs` appends key by key, so a throw on key _N_ of
+  _M_ leaves keys 1..*N*−1 already written and the rest absent. The step exits non-zero, so a
+  consumer that does not run on failure never observes it; a consumer using `if: always()` MUST NOT
+  treat a present output as proof the batch succeeded.
+- Keys are string literals at every call site. The guard rejects a key containing the delimiter but
+  NOT one containing `=` or `<<`, which the runner would parse ahead of the heredoc opener — so
+  keeping keys literal is load-bearing until that check lands (dig_ecosystem#2675).
 
 ---
 
