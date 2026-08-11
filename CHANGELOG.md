@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org) and
 [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.2.5] - 2026-08-11
+
+### Bug Fixes
+- **actions-io:** Use a UUID heredoc delimiter and reject values containing it (#6)
+
 ## [0.2.4] - 2026-08-06
 
 ### Chores
