@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org) and
 [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.2.7] - 2026-09-06
+
+### Bug Fixes
+- **release:** Float v0 major tag; point docs at the real ref (#8)
+
 ## [0.2.6] - 2026-09-04
 
 ### Documentation
