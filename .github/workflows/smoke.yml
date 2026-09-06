@@ -6,6 +6,10 @@ name: Smoke (composite glue + keyless wiring)
 # against a LOCAL echo server (no real GitHub OIDC, no real hub, no secrets), so
 # the full keyless path — request token → exchange → write session.json → emit
 # store-id — is verified end to end.
+#
+# The `resolve-floating-major` job below is a SEPARATE concern: it proves the floating `v0` tag
+# (moved by release.yml, dig_ecosystem#2687) actually resolves cross-repo to a working release —
+# something no in-repo test can show, since `uses: ./` never touches the tag at all.
 
 on:
   push:
@@ -157,3 +161,53 @@ jobs:
           grep -qi "preview" "$GITHUB_STEP_SUMMARY"
           grep -q "chia://aaaa:bbbb/" "$GITHUB_STEP_SUMMARY"
           grep -qx 'preview=true' "$GITHUB_OUTPUT" || grep -q 'preview<<' "$GITHUB_OUTPUT"
+
+  resolve-floating-major:
+    name: Resolve @v0 cross-repo (proves the floating major tag actually works)
+    # Dispatch-only: on push-to-main the release that would move v0 for THIS commit hasn't run yet
+    # (release.yml is a separate, later workflow run), so gating this on push races the tag move —
+    # it would resolve last release's v0, silently proving nothing about this one.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # A REAL cross-repo action reference — deliberately NOT `uses: ./` — because a local checkout
+      # only proves action.yml parses; it says nothing about whether the `v0` TAG resolves to a
+      # working commit. `preview: true` alone (no `allow-paid-preview`) forces the composite's own
+      # fail-closed spend guard to trip deliberately: no chain interaction, no hub call, no secrets —
+      # but only AFTER the tag resolves and the real code at that ref actually runs.
+      - name: uses DIG-Network/deploy-action@v0 (forced preview, no paid-preview opt-in)
+        id: dig
+        continue-on-error: true
+        uses: DIG-Network/deploy-action@v0
+        with:
+          preview: true
+          comment-on-pr: false
+
+      - name: A tag pointing at the wrong object cannot produce this outcome
+        shell: bash
+        run: |
+          set -euo pipefail
+          outcome="${{ steps.dig.outputs.outcome }}"
+          environment="${{ steps.dig.outputs.environment }}"
+          reason="${{ steps.dig.outputs.failure-reason }}"
+          echo "@v0 resolved -> environment=$environment outcome=$outcome reason=$reason"
+
+          # `blocked-paid-preview` can ONLY come from mode.mjs's own fail-closed guard actually
+          # running at ref v0, caught by report.mjs's `if: always()` step. If `v0` failed to resolve
+          # (tag missing, or pointing at a tag/tree object instead of a commit), the `uses:` step
+          # fails at GitHub's download stage BEFORE any composite step runs, and these outputs are
+          # empty — a sharply different, unambiguous signal from a genuine resolution.
+          if [ "$outcome" != "blocked-paid-preview" ]; then
+            echo "::error::expected outcome 'blocked-paid-preview' (proof @v0 resolved to real, running code) but got '$outcome' -- @v0 may not resolve, or may point at the wrong object"
+            exit 1
+          fi
+          if [ "$environment" != "preview" ]; then
+            echo "::error::expected environment 'preview', got '$environment'"
+            exit 1
+          fi
+          case "$reason" in
+            *allow-paid-preview*) echo "@v0 resolves cross-repo to the real, current release." ;;
+            *) echo "::error::unexpected failure-reason: $reason"; exit 1 ;;
+          esac
