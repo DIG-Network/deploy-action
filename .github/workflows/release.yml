@@ -9,6 +9,15 @@
 # enforce_admins is off; the PAT is an org-admin/owner). See CLAUDE.md §3.6.
 #
 # Idempotent + loop-safe: no-op if the version's tag already exists; skips its own changelog commit.
+#
+# After the vX.Y.Z tag is pushed, this workflow ALSO force-moves a floating major tag (v0 today; v1
+# once the action reaches 1.0-stable) to the release commit — the standard GitHub Actions major-tag
+# convention (`actions/checkout@v4` et al.), so `uses: DIG-Network/deploy-action@v0` always resolves to
+# the latest v0.x release. THIS IS A DELIBERATE, SANCTIONED EXCEPTION to the never-rewrite-pushed-
+# history rule: that rule protects vX.Y.Z tags and branches (both stay immutable here) — a floating
+# major is a POINTER tag whose entire purpose is to move, and only the release identity (this
+# workflow's RELEASE_TOKEN) can move it. See dig_ecosystem#2687 for the decision record. Do not "fix"
+# this by removing the force-push.
 name: Release
 
 on:
@@ -71,12 +80,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          TAG="${{ steps.ver.outputs.tag }}"
           git config user.name "dig-release-bot"
           git config user.email "release-bot@users.noreply.github.com"
           git add CHANGELOG.md
           # `chore(release):` prefix so this workflow skips its own push (loop guard above).
-          git commit -m "chore(release): ${{ steps.ver.outputs.tag }}" || echo "changelog unchanged"
-          git tag -a "${{ steps.ver.outputs.tag }}" -m "Release ${{ steps.ver.outputs.tag }}"
+          git commit -m "chore(release): $TAG" || echo "changelog unchanged"
+          git tag -a "$TAG" -m "Release $TAG"
           git push origin "HEAD:main"
-          git push origin "${{ steps.ver.outputs.tag }}"
-          echo "Pushed changelog commit + ${{ steps.ver.outputs.tag }} — deploy-on-tag will fire."
+          git push origin "$TAG"
+          echo "Pushed changelog commit + $TAG — deploy-on-tag will fire."
+
+          # Move the floating major tag (v0 today — see the file header above for why this force-push
+          # is sanctioned). Written as `v${MAJOR}` generically so it serves v1 unchanged once the
+          # action reaches 1.0 (dig_ecosystem#2687).
+          #
+          # The `^{}` peel is load-bearing: `$TAG^{}` dereferences the ANNOTATED tag object just
+          # created above down to the COMMIT it names. Without the peel, `git tag -fa $MAJOR $TAG`
+          # would tag that TAG OBJECT rather than the commit, and `uses: ...@v0` would still resolve —
+          # just to something subtly wrong, indistinguishable from a correct ref in `git tag` or the
+          # GitHub UI until something actually dereferences it.
+          MAJOR="${TAG%%.*}"
+          git tag -fa "$MAJOR" -m "Floating $MAJOR -> $TAG" "$TAG^{}"
+          git push --force origin "refs/tags/$MAJOR"
+          echo "Moved floating $MAJOR -> $TAG"
