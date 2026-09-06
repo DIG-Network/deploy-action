@@ -8,8 +8,9 @@ pull request (a PR comment + a GitHub deployment + a commit status). Push to you
 and your site advances to a new on-chain version, served by a network no host can read, change, or
 take down.
 
-> **Status: pre-release.** This action is built and tested but **not yet tagged `@v1`** — a human
-> gates the first release. See [Versioning](#versioning). Pin to a commit SHA until `@v1` ships.
+> **Status: 0.x (pre-1.0).** Reference it as `@v0` — a floating major tag moved to each release by
+> `release.yml`, the standard GitHub Action convention. The input surface can still change on a minor
+> release. See [Versioning](#versioning) for what 1.0 requires and how to pin harder.
 
 ---
 
@@ -79,7 +80,7 @@ jobs:
 
       - name: Deploy to DIG
         id: dig
-        uses: DIG-Network/deploy-action@v1 # pin to @v1 once released (SHA until then)
+        uses: DIG-Network/deploy-action@v0 # or pin an exact tag/commit SHA — see Versioning
         with:
           directory: dist
           digstore-version: v0.6.0 # PIN for reproducible CI (carries #17/#18)
@@ -262,7 +263,7 @@ All credentials should be passed from **repo secrets**, never inline.
 ```yaml
 - name: Deploy to DIG
   id: dig
-  uses: DIG-Network/deploy-action@v1
+  uses: DIG-Network/deploy-action@v0
   with: { directory: dist }
 
 - name: Act on the result
@@ -323,21 +324,29 @@ against a local echo server (no real GitHub OIDC, no real hub, no secrets).
 
 ## Versioning
 
-This action follows the standard GitHub Action major-tag convention:
+This action is versioned **0.x** and referenced via a **floating major tag** — the standard GitHub
+Action convention also used by `actions/checkout@v4` and `actions/setup-node@v4`:
 
-- Reference it as `DIG-Network/deploy-action@v1` for the latest compatible v1.x release.
-- A floating `v1` tag is moved forward to each v1.x release; pin to an exact tag (`@v1.2.3`) or a
-  commit SHA for byte-for-byte reproducibility.
+- `DIG-Network/deploy-action@v0` tracks the latest `v0.x` release. `release.yml` force-moves the `v0`
+  tag to match every release commit it cuts — automatically, not as a maintainer step.
+- The action is still 0.x, so **a minor release MAY change an input, an output, or a default**
+  (SemVer only promises stability across a major bump). Pin an exact tag (`@v0.2.7`) if you need a
+  fixed input surface.
+- For supply-chain hardening, pin a full commit SHA instead of any tag (`@<full-sha> # v0.2.7`) — a
+  SHA can't be moved by anyone, tag or no tag.
+- When the action reaches 1.0, the same mechanism moves `v1` instead — no change needed on your side;
+  `@v0` keeps tracking the 0.x line.
 
-**Release flow (gated by a maintainer):**
+**Release flow (fully automatic):** merge to `main` with CI green (`node --test` + actionlint +
+shellcheck) → `release.yml` regenerates `CHANGELOG.md`, tags the release commit `vX.Y.Z`, and
+force-moves the floating `v0` tag to it. There is no manual gate.
 
-1. Merge to `main` with CI green (`node --test` + actionlint + shellcheck).
-2. Tag the release commit: `git tag v1.0.0 && git push origin v1.0.0`.
-3. Move the floating major tag: `git tag -f v1 v1.0.0 && git push -f origin v1`.
-4. Publish a GitHub Release for `v1.0.0` (and, when ready, list it on the GitHub Marketplace).
+**1.0 criteria** — the action stays 0.x until all three land:
 
-> The first `@v1` tag is **not** cut automatically — a human gates it. Until then, pin to a commit
-> SHA.
+1. [#18](https://github.com/DIG-Network/deploy-action/issues/18) ships and the `preview` /
+   `allow-paid-preview` inputs settle into their final (non-provisional) semantics.
+2. The deprecated `dig-url` output is removed (`chia-url` is its replacement today).
+3. The `digstore-version` default's update policy is decided.
 
 > [!NOTE]
 > **digstore pin:** the keyless writer deploy-key (`--writer-key`) and the free `deploy --preview`

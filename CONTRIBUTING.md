@@ -14,8 +14,8 @@ Include:
 - The relevant `action.yml` inputs you set (redact any secrets — `passphrase`, `mnemonic`,
   `writer-key`, `deploy-key`, `salt`).
 - The `outcome` output if the run produced one (`success | skipped | preview | dry-run |
-  anchor-failed | push-failed | timed-out | no-credential | unauthorized | oidc-error |
-  blocked-paid-preview | failed`) and the `failure-reason`, if any.
+anchor-failed | push-failed | timed-out | no-credential | unauthorized | oidc-error |
+blocked-paid-preview | failed`) and the `failure-reason`, if any.
 
 ## Prerequisites
 
@@ -76,7 +76,7 @@ every PR; all of it must be green before merge:
 - **`.github/workflows/commitlint.yml`** — every commit on the PR, and the PR title, must be a
   [Conventional Commit](https://www.conventionalcommits.org/) (`commitlint.config.mjs`, extending
   `@commitlint/config-conventional`; allowed types: `feat fix docs style refactor perf test build
-  ci chore revert`).
+ci chore revert`).
 - **`.github/workflows/ensure-version-increment.yml`** — `package.json`'s `version` must strictly
   increase versus `main` (bump it as the last step before opening/updating your PR).
 
@@ -93,10 +93,10 @@ resolved, and the PR is squash-merged — never merged with a direct push.
   `outcome` value's meaning).
 - On merge, `.github/workflows/release.yml` regenerates `CHANGELOG.md` (git-cliff) from your commits,
   commits it, tags `vX.Y.Z`, and pushes the tag — write commit subjects with that in mind.
-- **Note on the `@v1` major tag:** per the [README's Versioning section](./README.md#versioning),
-  the first `@v1` tag is cut manually by a maintainer, not automatically by CI. A merged PR here
-  advances `main` and gets its own `vX.Y.Z` tag; moving the floating `v1` tag to point at it is a
-  separate, deliberate step.
+- **Note on the floating major tag:** per the [README's Versioning section](./README.md#versioning),
+  `release.yml` moves `v0` (the current major) to every release automatically — there is no manual
+  step. A merged PR here gets its own `vX.Y.Z` tag, and the SAME workflow run force-moves `v0` to it
+  in one pass.
 - Keep the diff focused; update [`SPEC.md`](./SPEC.md) and the [README](./README.md) in the same PR
   when you change an input, output, the mode/decision logic, or the keyless auth flow — they are the
   normative contract and the user-facing docs for this action, and a behaviour change that leaves

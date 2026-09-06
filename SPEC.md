@@ -407,10 +407,10 @@ any) were marked inactive and that nothing was spent.
 
 ## 9. Versioning
 
-The Action follows the standard major-tag convention: reference `DIG-Network/deploy-action@v1` for
-the latest v1.x; a floating `v1` tag moves forward to each v1.x release; pin an exact tag or commit
-SHA for reproducibility. The first `@v1` is human-gated; pin to a commit SHA until it ships. The
-`digstore-version` default (`v0.6.0`) is the minimum carrying the keyless writer deploy-key
+A floating major tag `v<MAJOR>` is moved to each release by `release.yml`; the current major is `v0`,
+so `@v0` tracks the 0.x line and minor releases MAY change inputs. Pin `@vX.Y.Z` or a commit SHA for
+reproducibility. The `digstore-version` default (`v0.6.0`) is the minimum carrying the keyless writer
+deploy-key
 (`--writer-key`) and the free `deploy --preview` path.
 
 ---
